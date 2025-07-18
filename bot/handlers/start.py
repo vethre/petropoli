@@ -18,7 +18,7 @@ async def cmd_start(message: Message):
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
     if not user:
         await execute_query(
-            "INSERT INTO users (user_id, coins, eggs, streak, acitve_zone) VALUES ($1, 500, $2, 0, 'Лужайка')",
+            "INSERT INTO users (user_id, coins, eggs, streak, active_zone) VALUES ($1, 500, $2, 0, 'Лужайка')",
             {"uid": uid, "eggs": json.dumps([])}
         )
         await insert_quest(uid, "Первое открытие яйца", "Открой своё первое яйцо", "Лужайка", 1, 250)
