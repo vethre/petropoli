@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+env/
+venv/
+*.env
+.env
+.idea/
+.vscode/
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+/data/ # Если у вас есть папка для локальной базы данных или временных файлов
+
+# Environment variables (CRITICAL for security!)
+.env
+config.py # Если вы храните чувствительные данные здесь
+
+# Docker
+*.dockerignore
+Dockerfile # Опционально, если вы не хотите отслеживать Dockerfile в Git, но обычно его отслеживают
+.docker/
+
+# Railway/Render specific files
+.railway/
+.render/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Other temporary files
+*~
+*.bak
+*.tmp
