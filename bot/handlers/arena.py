@@ -13,7 +13,7 @@ router = Router()
 arena_queue = []
 
 # --- Constants for Arena ---
-ARENA_MAX_ENERGY = 9
+ARENA_MAX_ENERGY = 6
 ENERGY_RECHARGE_TIME_MINUTES = 30 # 1 energy recharges every 30 minutes
 
 BASE_XP_WIN = 100
@@ -32,14 +32,15 @@ def get_xp_for_next_level(current_level: int) -> int:
 
 # --- Utility Functions (Keep as is) ---
 RANKS = [
-    (0, "Новичок"),
-    (3, "Ученик"),
-    (7, "Боец"),
-    (15, "Ветеран"),
-    (25, "Гладиатор"),
-    (40, "Чемпион"),
-    (60, "Звезда Арены"),
-    (90, "Легенда"),
+    (0, "Новобранец Арены"),
+    (3, "Тренер-Подмастерье"),
+    (7, "Пет-Рейнджер"),
+    (15, "Мастер Питомцев"),
+    (25, "Зверобой Арены"),
+    (40, "Повелитель Зверей"),
+    (60, "Чемпион Зверей"),
+    (90, "Абсолютный Гладиатор"),
+    (120, "Легенда Дикой Арены")
 ]
 
 def get_rank(wins):
@@ -285,29 +286,37 @@ async def check_and_level_up_pet(bot_instance, uid: int, pet_id: int): # Add bot
     leveled_up = False
     # Assuming get_xp_for_next_level is defined elsewhere in this file
     while current_xp >= get_xp_for_next_level(current_level):
-        current_xp -= get_xp_for_next_level(current_level)
+        xp_needed = get_xp_for_next_level(current_level)
+        current_xp -= xp_needed # Subtract the XP required for the current level
         current_level += 1
         leveled_up = True
-        
-        # Apply stat increases upon level up
+            
+            # Apply stat increases upon level up (adjust values as needed)
         pet_stats['atk'] += random.randint(1, 3)
         pet_stats['def'] += random.randint(1, 3)
         pet_stats['hp'] += random.randint(3, 7)
 
+            # IMPORTANT: Update the pet in the DB *inside* the loop if it levels up.
+            # This commits each level-up step and ensures consistency if something goes wrong.
         await execute_query(
             "UPDATE pets SET xp = $1, level = $2, stats = $3 WHERE id = $4 AND user_id = $5",
             {"xp": current_xp, "level": current_level, "stats": json.dumps(pet_stats), "id": pet_id, "user_id": uid}
         )
-        if current_level >= 100:
-            current_xp = 0
+            
+            # Cap max level to prevent infinite loop/overpowering
+        if current_level >= 100: 
+            current_xp = 0 # Ensure XP is reset if max level reached
+            await execute_query( # Update DB one last time if max level reached and XP reset
+                "UPDATE pets SET xp = $1, level = $2 WHERE id = $3 AND user_id = $4",
+                {"xp": current_xp, "level": current_level, "id": pet_id, "user_id": uid}
+            )
             break
 
     if leveled_up:
-        # Use bot_instance to get chat info and send message
-        user_chat_info = await bot_instance.get_chat(uid) 
+        user_chat_info = await bot_instance.get_chat(uid)
         user_name = user_chat_info.first_name if user_chat_info.first_name else user_chat_info.full_name
-        
-        await bot_instance.send_message( # Use bot_instance here
+            
+        await bot_instance.send_message(
             uid,
             f"🎉 Поздравляем, {user_name}!\nТвой питомец <b>{pet['name']}</b> достиг <b>Уровня {current_level}</b>!\n"
             f"Новые характеристики:\n⚔ Атака: {pet_stats['atk']} | 🛡 Защита: {pet_stats['def']} | ❤️ Здоровье: {pet_stats['hp']}",
