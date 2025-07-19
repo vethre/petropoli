@@ -164,7 +164,7 @@ async def _show_quests_tab(call: CallbackQuery):
         print(f"Could not delete message for user {uid}: {e}")
 
     # Call the main /quests display logic, which will now send a NEW message
-    await show_quests(call) # Pass the CallbackQuery directly
+    await show_quests(call, page=1) # Pass the CallbackQuery directly
 
 async def _show_zones_tab(call: CallbackQuery):
     uid = call.from_user.id
@@ -176,7 +176,7 @@ async def _show_zones_tab(call: CallbackQuery):
     except Exception as e:
         print(f"Could not delete message for user {uid}: {e}")
 
-    await show_zones(uid, call)
+    await show_zones(uid, call, page=1)
 
 async def _show_pets_tab(call: CallbackQuery):
     uid = call.from_user.id
@@ -188,8 +188,7 @@ async def _show_pets_tab(call: CallbackQuery):
     except Exception as e:
         print(f"Could not delete message for user {uid}: {e}")
 
-    await show_pets_paginated(uid, call)
-
+    await show_pets_paginated(uid, call, page=1)
 
 # ——————— Router for Profile Tabs (Directly calls _show_tab helpers) ———————
 @router.callback_query(F.data.startswith("show_tab_"))
@@ -275,17 +274,19 @@ async def show_zones(uid: int, source_message: Message | CallbackQuery):
             kb.button(text=f"🔓 Открыть {name}", callback_data=f"zone_buy:{name}")
 
     kb.add(InlineKeyboardButton(text="🔙 Назад в Профиль", callback_data="profile_back")) # Always add back button
-    kb.adjust(1) # Adjust layout to put back button on its own line
+    kb.adjust(1) 
     markup = kb.as_markup()
 
-    is_initial_call = isinstance(source_message, Message) or source_message.data.startswith("show_tab_zones")
+    is_initial_call = isinstance(source_message, Message) or (isinstance(source_message, CallbackQuery) and source_message.data.startswith("show_tab_zones"))
 
     if is_initial_call:
-        await source_message.answer(text, reply_markup=markup, parse_mode="HTML")
+        if isinstance(source_message, Message):
+            await source_message.answer(text, reply_markup=markup, parse_mode="HTML")
+        elif isinstance(source_message, CallbackQuery):
+            await source_message.message.answer(text, reply_markup=markup, parse_mode="HTML")
     elif isinstance(source_message, CallbackQuery):
-        # For set/buy zone callbacks, EDIT the current message
         await source_message.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-        await source_message.answer() # Acknowledge the callback
+        await source_message.answer()
 
 def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: int = 3):
     total_pages = max(1, ceil(len(quests) / per_page))
