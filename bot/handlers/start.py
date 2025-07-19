@@ -124,29 +124,22 @@ async def pets_cb(call: CallbackQuery):
     await call.answer()
     await show_pets_paginated(call.from_user.id, call.message, page=1)
 
-@router.callback_query(F.data == "inventory_cb")
-async def inventory_cb(call: CallbackQuery):
-    await call.answer()
-    # Не трогаем профиль, просто отправляем новый ответ
-    await call.message.answer("🎒 Инвентарь: в разработке.")
+# Command handlers fallback
+@router.message(Command("inventory"))
+async def inventory_cmd(message: Message):
+    await message.answer("🎒 Инвентарь: в разработке.")
 
-@router.callback_query(F.data == "quests_cb")
-async def quests_cb(call: CallbackQuery):
-    await call.answer()
-    # Показываем квесты новым сообщением, профиль остаётся
-    await show_quests(call)
+@router.message(Command("quests"))
+async def show_quests_command(message: Message):
+    await show_quests(message)
 
-@router.callback_query(F.data == "zones_cb")
-async def zones_cb(call: CallbackQuery):
-    await call.answer()
-    # Показываем зоны новым сообщением
-    await show_zones(call.from_user.id, call)
+@router.message(Command("zones"))
+async def zones_command(message: Message):
+    await show_zones(message.from_user.id, message)
 
-@router.callback_query(F.data == "pets_cb")
-async def pets_cb(call: CallbackQuery):
-    await call.answer()
-    # Показываем питомцев новым сообщением
-    await show_pets_paginated(call.from_user.id, call, page=1)
+@router.message(Command("pets"))
+async def pets_command(message: Message):
+    await show_pets_paginated(message.from_user.id, message, page=1)
 
 # Unified function for quests
 async def show_quests(source_message: Message | CallbackQuery, page: int = 1):
