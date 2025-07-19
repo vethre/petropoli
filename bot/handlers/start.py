@@ -14,7 +14,6 @@ from db.db import (
     execute_query,
     get_user_quests,
     insert_quest,
-    complete_quest,
     claim_quest_reward,
 )
 
@@ -65,13 +64,17 @@ async def show_profile(uid: int, message: Message):
     except (json.JSONDecodeError, TypeError):
         eggs = []
 
-    # Keyboard with commands
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(
-        KeyboardButton(text="/inventory"),
-        KeyboardButton(text="/quests"),
-        KeyboardButton(text="/zones"),
-        KeyboardButton(text="/pets"),
+    # Keyboard with commands (aiogram 3.4.1 requires explicit keyboard param)
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="/inventory"),
+                KeyboardButton(text="/quests"),
+                KeyboardButton(text="/zones"),
+                KeyboardButton(text="/pets"),
+            ]
+        ],
+        resize_keyboard=True,
     )
 
     # Determine display name
@@ -168,14 +171,14 @@ async def show_zones(uid: int, source: Message | CallbackQuery):
         await source.answer()
 
 # Build quests text and pagination
-def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: int = 3):
+async def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: int = 3):
     total_pages = max(1, ceil(len(quests) / per_page))
     page = max(1, min(page, total_pages))
     start = (page - 1) * per_page
     end = start + per_page
     page_quests = quests[start:end]
 
-    text = "🎯 <b>Твои квесты:</b>\n\n"
+    text = "🎯 <b>Твои квесты:</b>"
     kb = InlineKeyboardBuilder()
     for q in page_quests:
         progress = f"{q['progress']}/{q['goal']}" if q['goal'] > 0 else "Неограниченный"
@@ -186,19 +189,21 @@ def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: in
         if q.get('reward_egg', False):
             rewards.append("🥚 1 яйцо")
         reward_text = "Награда: " + ", ".join(rewards) if rewards else "Без награды"
+
         text += (
-            f"🔹 <b>{q['name']}</b>\n"
-            f"📖 {q['description']}\n"
-            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}\n"
-            f"{reward_text}\n\n"
+            f"🔹 <b>{q['name']}</b>"
+            f"📖 {q['description']}"
+            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}"
+            f"{reward_text}"
         )
         if q['completed'] and not q.get('claimed', False):
             kb.button(text=f"🎁 Забрать «{q['name']}»", callback_data=f"claim_quest:{q['id']}")
-    # Pagination
+
+    # Pagination buttons
     nav = []
     if page > 1:
         nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"quests_page:{page-1}"))
-    nav.append(InlineKeyboardButton(text=f"📄 Страница {page}/{total_pages}", callback_data="noop"))
+    nav.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="noop"))
     if page < total_pages:
         nav.append(InlineKeyboardButton(text="➡️ Вперёд", callback_data=f"quests_page:{page+1}"))
     if nav:
@@ -257,7 +262,7 @@ async def buy_zone_callback(call: CallbackQuery):
     await call.answer(f"🎉 Зона «{zone}» успешно открыта!")
     await show_zones(uid, call)
 
-# Quest progress checker (called elsewhere)
+# Quest progress checker (called periodically)
 async def check_quest_progress(uid: int, message: Message = None):
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
     eggs = json.loads(user.get("eggs") or "[]")
@@ -282,7 +287,7 @@ async def check_quest_progress(uid: int, message: Message = None):
             )
             if message:
                 await message.answer(
-                    f"🏆 <b>@{message.from_user.username or 'ты'}</b> завершил квест <b>«{q['name']}»</b>!\n"
+                    f"🏆 <b>@{message.from_user.username or 'ты'} завершил квест «{q['name']}»!</b>"
                     f"🎁 Награда доступна для получения!"
                 )
         elif new_progress != q['progress']:
@@ -291,7 +296,7 @@ async def check_quest_progress(uid: int, message: Message = None):
                 {"progress": new_progress, "id": q['id']}
             )
 
-# Zone unlock checker (called elsewhere)
+# Zone unlock checker (called periodically)
 async def check_zone_unlocks(uid: int, message: Message = None):
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
     if not user:
@@ -307,15 +312,12 @@ async def check_zone_unlocks(uid: int, message: Message = None):
             continue
         conds = json.loads(zone.get('unlock_conditions') or "{}")
         can_unlock = True
-        if conds.get('hatched_count'):
-            if user.get('hatched_count', 0) < conds['hatched_count']:
-                can_unlock = False
-        if conds.get('coins'):
-            if user['coins'] < conds['coins']:
-                can_unlock = False
-        if conds.get('merge_count'):
-            if user.get('merged_count', 0) < conds['merge_count']:
-                can_unlock = False
+        if conds.get('hatched_count') and user.get('hatched_count', 0) < conds['hatched_count']:
+            can_unlock = False
+        if conds.get('coins') and user['coins'] < conds['coins']:
+            can_unlock = False
+        if conds.get('merge_count') and user.get('merged_count', 0) < conds['merge_count']:
+            can_unlock = False
         if can_unlock:
             await execute_query(
                 "INSERT INTO user_zones (user_id, zone, unlocked) VALUES ($1, $2, TRUE) "
@@ -323,10 +325,7 @@ async def check_zone_unlocks(uid: int, message: Message = None):
                 {"uid": uid, "zone": name}
             )
             if message:
-                await message.answer(
-                    f"🌍 Ты открыл новую зону: <b>{name}</b>!\n"
-                    f"📖 {zone['description']}"
-                )
+                await message.answer(f"🌍 Ты открыл новую зону: <b>{name}</b>! 📖 {zone['description']}")
 
 # Get zone buff multiplier
 async def get_zone_buff(user: dict) -> float:
