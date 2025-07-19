@@ -3,6 +3,7 @@ from datetime import datetime
 from math import ceil
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import json
@@ -65,16 +66,12 @@ async def show_profile(uid: int, message: Message):
         eggs = []
 
     # Keyboard with commands (aiogram 3.4.1 requires explicit keyboard param)
-    kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="/inventory"),
-                KeyboardButton(text="/quests"),
-                KeyboardButton(text="/zones"),
-                KeyboardButton(text="/pets"),
-            ]
-        ],
-        resize_keyboard=True,
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("/inventory", callback_data="cmd:inventory"),
+        InlineKeyboardButton("/quests",   callback_data="cmd:quests"),
+        InlineKeyboardButton("/zones",    callback_data="cmd:zones"),
+        InlineKeyboardButton("/pets",     callback_data="cmd:pets"),
     )
 
     # Determine display name
