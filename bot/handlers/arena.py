@@ -487,7 +487,7 @@ async def run_battle(message: Message, uid1, uid2):
             await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2 AND user_id = $3",
                                 {"xp_gain": xp_gain1, "id": pet["id"], "user_id": uid1})
             await check_and_level_up_pet(message.bot, uid1, pet["id"]) # Check for level up after XP
-        await execute_query("UPDATE users SET pet_coins = pet_coins + $1 WHERE user_id = $2",
+        await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                             {"coins_gain": coins_gain1, "uid": uid1})
         final_result_text += f"\n+{xp_gain1} XP каждому питомцу | +{coins_gain1} 💰"
 
@@ -500,7 +500,7 @@ async def run_battle(message: Message, uid1, uid2):
                 await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2 AND user_id = $3",
                                     {"xp_gain": xp_gain2, "id": pet["id"], "user_id": uid2})
                 await check_and_level_up_pet(message.bot, uid2, pet["id"]) # Check for level up after XP
-            await execute_query("UPDATE users SET pet_coins = pet_coins + $1 WHERE user_id = $2",
+            await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                                 {"coins_gain": coins_gain2, "uid": uid2})
             # Send message to losing player as well
             await message.bot.send_message(
@@ -521,7 +521,7 @@ async def run_battle(message: Message, uid1, uid2):
             await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2 AND user_id = $3",
                                 {"xp_gain": xp_gain1, "id": pet["id"], "user_id": uid1})
             await check_and_level_up_pet(message.bot, uid1, pet["id"]) # Check for level up after XP
-        await execute_query("UPDATE users SET pet_coins = pet_coins + $1 WHERE user_id = $2",
+        await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                             {"coins_gain": coins_gain1, "uid": uid1})
         final_result_text += f"\n+{xp_gain1} XP каждому питомцу | +{coins_gain1} 💰"
 
@@ -534,7 +534,7 @@ async def run_battle(message: Message, uid1, uid2):
                 await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2 AND user_id = $3",
                                     {"xp_gain": xp_gain2, "id": pet["id"], "user_id": uid2})
                 await check_and_level_up_pet(message.bot, uid2, pet["id"]) # Check for level up after XP
-            await execute_query("UPDATE users SET pet_coins = pet_coins + $1 WHERE user_id = $2",
+            await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                                 {"coins_gain": coins_gain2, "uid": uid2})
             # Send message to winning player as well
             await message.bot.send_message(
@@ -557,7 +557,7 @@ async def run_battle(message: Message, uid1, uid2):
             await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2 AND user_id = $3",
                                 {"xp_gain": xp_gain1, "id": pet["id"], "user_id": uid1})
             await check_and_level_up_pet(message.bot, uid1, pet["id"]) # Check for level up after XP
-        await execute_query("UPDATE users SET pet_coins = pet_coins + $1 WHERE user_id = $2",
+        await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                             {"coins_gain": coins_gain1, "uid": uid1})
         final_result_text += f"\n+{xp_gain1} XP каждому питомцу | +{coins_gain1} 💰"
 
@@ -570,7 +570,7 @@ async def run_battle(message: Message, uid1, uid2):
                 await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2 AND user_id = $3",
                                     {"xp_gain": xp_gain2, "id": pet["id"], "user_id": uid2})
                 await check_and_level_up_pet(message.bot, uid2, pet["id"]) # Check for level up after XP
-            await execute_query("UPDATE users SET pet_coins = pet_coins + $1 WHERE user_id = $2",
+            await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                                 {"coins_gain": coins_gain2, "uid": uid2})
             # Send message to other player as well
             await message.bot.send_message(
