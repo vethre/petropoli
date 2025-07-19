@@ -3,7 +3,7 @@ from datetime import datetime
 from math import ceil
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import json
 
@@ -204,7 +204,7 @@ def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: in
     end = start + per_page
     page_quests = quests[start:end]
 
-    text = "🎯 <b>Твои квесты:</b>\n\n"
+    text = "🎯 <b>Твои квесты:</b>"
     kb = InlineKeyboardBuilder()
     for q in page_quests:
         progress = f"{q['progress']}/{q['goal']}" if q['goal'] > 0 else "Неограниченный"
@@ -217,24 +217,24 @@ def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: in
         reward_text = "Награда: " + ", ".join(rewards) if rewards else "Без награды"
 
         text += (
-            f"🔹 <b>{q['name']}</b>\n"
-            f"📖 {q['description']}\n"
-            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}\n"
-            f"{reward_text}\n\n"
+            f"🔹 <b>{q['name']}</b>"
+            f"📖 {q['description']}"
+            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}"
+            f"{reward_text}"
         )
         if q['completed'] and not q.get('claimed', False):
-            kb.button(text=f"🎁 Забрать «{q['name']}»", callback_data=f"claim_quest:{q['id']}" )
+            kb.button(text=f"🎁 Забрать «{q['name']}»", callback_data=f"claim_quest:{q['id']}")
 
     # Pagination buttons
-    nav = []
+    nav_buttons = []
     if page > 1:
-        nav.append(InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data=f"quests_page:{page-1}"))
-    nav.append(InlineKeyboardBuilder().button(text=f"📄 {page}/{total_pages}", callback_data="noop"))
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"quests_page:{page-1}"))
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="noop"))
     if page < total_pages:
-        nav.append(InlineKeyboardBuilder().button(text="➡️ Вперёд", callback_data=f"quests_page:{page+1}"))
-    if nav:
-        # nav list contains InlineKeyboardButton objects
-        kb.row(*nav)
+        nav_buttons.append(InlineKeyboardButton(text="➡️ Вперёд", callback_data=f"quests_page:{page+1}"))
+    if nav_buttons:
+        kb.row(*nav_buttons)
+
     return text, kb
 
 # Claim quest reward
