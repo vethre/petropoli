@@ -1,4 +1,4 @@
-#start.py
+#START.PY
 from datetime import datetime
 from math import ceil
 from aiogram import F, Router
@@ -105,23 +105,24 @@ async def show_profile(uid: int, message: Message):
 @router.callback_query(F.data == "inventory_cb")
 async def inventory_cb(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_reply_markup()
+    # Не трогаем профиль, просто отправляем новый ответ
     await call.message.answer("🎒 Инвентарь: в разработке.")
 
 @router.callback_query(F.data == "quests_cb")
 async def quests_cb(call: CallbackQuery):
     await call.answer()
-    await show_quests(call)
+    # Показываем квесты новым сообщением, профиль остаётся
+    await show_quests(call.message)
 
 @router.callback_query(F.data == "zones_cb")
 async def zones_cb(call: CallbackQuery):
     await call.answer()
-    await show_zones(call.from_user.id, call)
+    await show_zones(call.from_user.id, call.message)
 
 @router.callback_query(F.data == "pets_cb")
 async def pets_cb(call: CallbackQuery):
     await call.answer()
-    await show_pets_paginated(call.from_user.id, call, page=1)
+    await show_pets_paginated(call.from_user.id, call.message, page=1)
 
 # Command handlers fallback
 @router.message(Command("inventory"))
