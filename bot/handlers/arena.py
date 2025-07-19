@@ -114,20 +114,22 @@ async def set_or_show_team(message: Message):
         return
 
     all_pets = await fetch_all("SELECT * FROM pets WHERE user_id = $1", {"uid": uid})
-    pet_ids = [p["id"] for p in all_pets]
+    pet_data_by_id = {p["id"]: p for p in all_pets} 
 
     if not args:
-        current_team = json.loads(user.get("active_arena_team", "[]"))
-        if not current_team:
+        current_team_ids = json.loads(user.get("active_arena_team", "[]"))
+        if not current_team_ids:
             await message.answer("⚔ У тебя пока не выбрана команда для арены.\nИспользуй <code>/team id1 id2 ...</code>")
             return
         
         team_for_display = []
-        for pet_id in current_team:
-            pet_data = pet_ids.get(pet_id)
+        for pet_id in current_team_ids:
+            # CORRECTED: Use the dictionary for lookup
+            pet_data = pet_data_by_id.get(pet_id) 
             if pet_data:
-                    # Ensure stats are dict for calculate_power and display
-                pet_data_copy = dict(pet_data) # Make a copy if fetch_all returns immutable rows
+                # Ensure stats are dict for calculate_power and display
+                # Make a copy if fetch_all returns immutable rows (like asyncpg.Record)
+                pet_data_copy = dict(pet_data) 
                 pet_data_copy["stats"] = pet_data_copy["stats"] if isinstance(pet_data_copy["stats"], dict) else json.loads(pet_data_copy["stats"])
                 team_for_display.append(pet_data_copy)
         
@@ -135,17 +137,18 @@ async def set_or_show_team(message: Message):
         total_team_power = calculate_power(team_for_display)
 
         text = "🏟️ <b>Твоя арена-команда</b>\n\n"
-        for idx, pet_id in enumerate(current_team, 1):
-            pet = next((p for p in all_pets if p["id"] == pet_id), None)
-            if pet:
-                stats = pet["stats"]
-                text += (
-                    f"🐾 <b>#{idx}</b> {pet['name']} ({pet['rarity']} | {pet['class']} | Ур. {pet.get('level', 1)})\n" # Added Level
-                    f"⚔ Атака: {stats['atk']} | 🛡 Защита: {stats['def']} | ❤️ Здоровье: {stats['hp']}\n"
-                    f"🆔 ID: <code>{pet_id}</code>\n\n"
-                    f"💪 Сила: <code>{total_team_power}</code>\n\n"
-                )
-        await message.answer(text, parse_mode="HTML") # Added parse_mode
+        # Add total team power at the top
+        text += f"📊 Общая сила команды: <b>{total_team_power}</b> 💪\n\n"
+
+        # Iterate through the prepared 'team_for_display' for the actual message content
+        for idx, pet in enumerate(team_for_display, 1): 
+            stats = pet["stats"] # Stats are already parsed in team_for_display
+            text += (
+                f"🐾 <b>#{idx}</b> {pet['name']} ({pet['rarity']} | {pet['class']} | Ур. {pet.get('level', 1)})\n"
+                f"⚔ Атака: {stats['atk']} | 🛡 Защита: {stats['def']} | ❤️ Здоровье: {stats['hp']}\n"
+                f"🆔 ID: <code>{pet['id']}</code>\n\n"
+            )
+        await message.answer(text, parse_mode="HTML")
     else:
         try:
             new_team = list(map(int, args))
@@ -157,7 +160,7 @@ async def set_or_show_team(message: Message):
             await message.answer("⚠ Максимум 5 питомцев в арене.")
             return
 
-        if any(pet_id not in pet_ids for pet_id in new_team):
+        if any(pet_id not in pet_data_by_id for pet_id in new_team):
             await message.answer("⚠ Один или несколько ID не принадлежат тебе.")
             return
         
