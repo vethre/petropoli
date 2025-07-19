@@ -68,10 +68,10 @@ async def show_profile(uid: int, message: Message):
     # Keyboard with commands (aiogram 3.4.1 requires explicit keyboard param)
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("/inventory", callback_data="cmd:inventory"),
-        InlineKeyboardButton("/quests",   callback_data="cmd:quests"),
-        InlineKeyboardButton("/zones",    callback_data="cmd:zones"),
-        InlineKeyboardButton("/pets",     callback_data="cmd:pets"),
+        InlineKeyboardButton(text="🎒 Инвентарь", callback_data="inventory_cb"),
+        InlineKeyboardButton(text="📜 Квесты",    callback_data="quests_cb"),
+        InlineKeyboardButton(text="🧭 Зоны",     callback_data="zones_cb"),
+        InlineKeyboardButton(text="🐾 Питомцы",      callback_data="pets_cb"),
     )
 
     # Determine display name
@@ -96,6 +96,28 @@ async def show_profile(uid: int, message: Message):
         f"➡️ <i>Выбери действие:</i>"
     )
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@router.callback_query(F.data == "inventory_cb")
+async def inventory_cb(call: CallbackQuery):
+    await call.answer()
+    await call.message.edit_reply_markup()  # убираем клавиатуру
+    await call.message.answer("🎒 Инвентарь: в разработке.")
+
+@router.callback_query(F.data == "quests_cb")
+async def quests_cb(call: CallbackQuery):
+    await call.answer()
+    # Показываем квесты с пагинацией — оригинальный show_quests обрабатывает CallbackQuery
+    await show_quests(call)
+
+@router.callback_query(F.data == "zones_cb")
+async def zones_cb(call: CallbackQuery):
+    await call.answer()
+    await show_zones(call.from_user.id, call)
+
+@router.callback_query(F.data == "pets_cb")
+async def pets_cb(call: CallbackQuery):
+    await call.answer()
+    await show_pets_paginated(call.from_user.id, call, page=1)
 
 @router.message(Command("inventory"))
 async def inventory_cmd(message: Message):
