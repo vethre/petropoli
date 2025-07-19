@@ -3,8 +3,7 @@ from datetime import datetime
 from math import ceil
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import json
 
@@ -26,7 +25,9 @@ router = Router()
 @router.message(Command("pstart"))
 async def cmd_start(message: Message):
     uid = message.from_user.id
-    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+    user = await fetch_one(
+        "SELECT * FROM users WHERE user_id = $1", {"uid": uid}
+    )
     if not user:
         # New user setup
         await execute_query(
@@ -42,7 +43,9 @@ async def cmd_start(message: Message):
             "INSERT INTO user_zones (user_id, zone, unlocked) VALUES ($1, $2, TRUE)",
             {"user_id": uid, "zone": "Лужайка"},
         )
-        await message.answer("👋 Добро пожаловать в Petropolis!\nТы получил 500 петкойнов на старт 💰")
+        await message.answer(
+            "👋 Добро пожаловать в Petropolis!\nТы получил 500 петкойнов на старт 💰"
+        )
     else:
         await message.answer(
             "👋 Ты уже зарегистрирован!\nНапиши /pprofile, чтобы посмотреть свои данные."
@@ -53,7 +56,9 @@ async def profile_cmd(message: Message):
     await show_profile(message.from_user.id, message)
 
 async def show_profile(uid: int, message: Message):
-    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+    user = await fetch_one(
+        "SELECT * FROM users WHERE user_id = $1", {"uid": uid}
+    )
     if not user:
         return await message.answer(
             "Ты ещё не зарегистрирован. Напиши /pstart!", parse_mode="HTML"
@@ -65,14 +70,13 @@ async def show_profile(uid: int, message: Message):
     except (json.JSONDecodeError, TypeError):
         eggs = []
 
-    # Keyboard with commands (aiogram 3.4.1 requires explicit keyboard param)
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton(text="🎒 Инвентарь", callback_data="inventory_cb"),
-        InlineKeyboardButton(text="📜 Квесты",    callback_data="quests_cb"),
-        InlineKeyboardButton(text="🧭 Зоны",     callback_data="zones_cb"),
-        InlineKeyboardButton(text="🐾 Питомцы",      callback_data="pets_cb"),
-    )
+    # Build inline keyboard
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🎒 Инвентарь", callback_data="inventory_cb")
+    kb.button(text="📜 Квесты",     callback_data="quests_cb")
+    kb.button(text="🧭 Зоны",       callback_data="zones_cb")
+    kb.button(text="🐾 Питомцы",    callback_data="pets_cb")
+    kb.adjust(2)  # два столбца
 
     # Determine display name
     try:
@@ -92,21 +96,21 @@ async def show_profile(uid: int, message: Message):
         f"━━━━━━━━━━━━━━\n"
         f"🐣 <b>Вылуплено питомцев:</b> {user.get('hatched_count', 0)}\n"
         f"🛍️ <b>Куплено яиц:</b> {user.get('bought_eggs', 0)}\n"
-        f"━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━\n\n"
         f"➡️ <i>Выбери действие:</i>"
     )
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
+# Callbacks for profile actions
 @router.callback_query(F.data == "inventory_cb")
 async def inventory_cb(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_reply_markup()  # убираем клавиатуру
+    await call.message.edit_reply_markup()
     await call.message.answer("🎒 Инвентарь: в разработке.")
 
 @router.callback_query(F.data == "quests_cb")
 async def quests_cb(call: CallbackQuery):
     await call.answer()
-    # Показываем квесты с пагинацией — оригинальный show_quests обрабатывает CallbackQuery
     await show_quests(call)
 
 @router.callback_query(F.data == "zones_cb")
@@ -119,23 +123,24 @@ async def pets_cb(call: CallbackQuery):
     await call.answer()
     await show_pets_paginated(call.from_user.id, call, page=1)
 
+# Command handlers fallback
 @router.message(Command("inventory"))
 async def inventory_cmd(message: Message):
     await message.answer("🎒 Инвентарь: в разработке.")
 
 @router.message(Command("quests"))
-async def show_quests_command_handler(message: Message):
+async def show_quests_command(message: Message):
     await show_quests(message)
 
 @router.message(Command("zones"))
-async def zones_command_handler(message: Message):
+async def zones_command(message: Message):
     await show_zones(message.from_user.id, message)
 
 @router.message(Command("pets"))
-async def pets_command_handler(message: Message):
+async def pets_command(message: Message):
     await show_pets_paginated(message.from_user.id, message, page=1)
 
-# Unified function for displaying quests and handling pagination/claim callbacks
+# Unified function for quests
 async def show_quests(source_message: Message | CallbackQuery, page: int = 1):
     uid = source_message.from_user.id
     quests = await get_user_quests(uid)
@@ -152,7 +157,7 @@ async def show_quests(source_message: Message | CallbackQuery, page: int = 1):
         await source_message.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
         await source_message.answer()
 
-# Unified function for displaying zones and handling buy/set callbacks
+# Unified function for zones
 async def show_zones(uid: int, source: Message | CallbackQuery):
     zones_data = await fetch_all("SELECT * FROM zones")
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
@@ -181,6 +186,7 @@ async def show_zones(uid: int, source: Message | CallbackQuery):
             kb.button(text=f"📍 Включить {name}", callback_data=f"zone_set:{name}")
         elif name not in unlocked:
             kb.button(text=f"🔓 Открыть {name}", callback_data=f"zone_buy:{name}")
+    kb.adjust(1)
     markup = kb.as_markup()
 
     if isinstance(source, Message):
@@ -190,14 +196,14 @@ async def show_zones(uid: int, source: Message | CallbackQuery):
         await source.answer()
 
 # Build quests text and pagination
-async def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: int = 3):
+def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: int = 3):
     total_pages = max(1, ceil(len(quests) / per_page))
     page = max(1, min(page, total_pages))
     start = (page - 1) * per_page
     end = start + per_page
     page_quests = quests[start:end]
 
-    text = "🎯 <b>Твои квесты:</b>"
+    text = "🎯 <b>Твои квесты:</b>\n\n"
     kb = InlineKeyboardBuilder()
     for q in page_quests:
         progress = f"{q['progress']}/{q['goal']}" if q['goal'] > 0 else "Неограниченный"
@@ -210,22 +216,23 @@ async def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_pa
         reward_text = "Награда: " + ", ".join(rewards) if rewards else "Без награды"
 
         text += (
-            f"🔹 <b>{q['name']}</b>"
-            f"📖 {q['description']}"
-            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}"
-            f"{reward_text}"
+            f"🔹 <b>{q['name']}</b>\n"
+            f"📖 {q['description']}\n"
+            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}\n"
+            f"{reward_text}\n\n"
         )
         if q['completed'] and not q.get('claimed', False):
-            kb.button(text=f"🎁 Забрать «{q['name']}»", callback_data=f"claim_quest:{q['id']}")
+            kb.button(text=f"🎁 Забрать «{q['name']}»", callback_data=f"claim_quest:{q['id']}" )
 
     # Pagination buttons
     nav = []
     if page > 1:
-        nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"quests_page:{page-1}"))
-    nav.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="noop"))
+        nav.append(InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data=f"quests_page:{page-1}"))
+    nav.append(InlineKeyboardBuilder().button(text=f"📄 {page}/{total_pages}", callback_data="noop"))
     if page < total_pages:
-        nav.append(InlineKeyboardButton(text="➡️ Вперёд", callback_data=f"quests_page:{page+1}"))
+        nav.append(InlineKeyboardBuilder().button(text="➡️ Вперёд", callback_data=f"quests_page:{page+1}"))
     if nav:
+        # nav list contains InlineKeyboardButton objects
         kb.row(*nav)
     return text, kb
 
@@ -306,7 +313,7 @@ async def check_quest_progress(uid: int, message: Message = None):
             )
             if message:
                 await message.answer(
-                    f"🏆 <b>@{message.from_user.username or 'ты'} завершил квест «{q['name']}»!</b>"
+                    f"🏆 <b>@{message.from_user.username or 'ты'} завершил квест «{q['name']}»!</b>\n"
                     f"🎁 Награда доступна для получения!"
                 )
         elif new_progress != q['progress']:
@@ -344,7 +351,7 @@ async def check_zone_unlocks(uid: int, message: Message = None):
                 {"uid": uid, "zone": name}
             )
             if message:
-                await message.answer(f"🌍 Ты открыл новую зону: <b>{name}</b>! 📖 {zone['description']}")
+                await message.answer(f"🌍 Ты открыл новую зону: <b>{name}</b>!\n📖 {zone['description']}")
 
 # Get zone buff multiplier
 async def get_zone_buff(user: dict) -> float:
