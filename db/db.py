@@ -1,3 +1,4 @@
+import json
 import asyncpg
 from config import DB_URL
 
@@ -45,3 +46,41 @@ async def complete_quest(uid: int, quest_name: str):
         "UPDATE quests SET completed = TRUE WHERE user_id = $1 AND name = $2",
         {"uid": uid, "quest_name": quest_name}
     )
+
+async def claim_quest_reward(user_id: int, quest_id: int):
+    # Теперь мы ищем по ID квеста, а не по имени
+    quest = await fetch_one("SELECT * FROM quests WHERE user_id = $1 AND id = $2 AND completed = TRUE AND claimed = FALSE", {"user_id": user_id, "id": quest_id})
+
+    if not quest:
+        return False, "Квест не найден, не завершен или награда уже получена."
+
+    # Process rewards
+    reward_coins = quest.get("reward_coins", 0)
+    reward_egg = quest.get("reward_egg", False)
+
+    # Update user's coins
+    if reward_coins > 0:
+        await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2", {"coins_to_add": reward_coins, "user_id": user_id})
+
+    # Add egg if applicable
+    if reward_egg:
+        user = await fetch_one("SELECT eggs FROM users WHERE user_id = $1", {"user_id": user_id})
+        current_eggs = json.loads(user["eggs"] or "[]")
+        current_eggs.append({"type": "Лужайка", "rarity": "common"}) # Пример яйца, можешь настроить
+        await execute_query("UPDATE users SET eggs = $1 WHERE user_id = $2", {"eggs_json": json.dumps(current_eggs), "user_id": user_id})
+
+    # Mark quest as claimed
+    await execute_query("UPDATE quests SET claimed = TRUE WHERE id = $1", {"id": quest_id})
+
+    reward_message = ""
+    if reward_coins > 0:
+        reward_message += f"💰 {reward_coins} петкойнов"
+    if reward_egg:
+        if reward_message: reward_message += ", "
+        reward_message += "🥚 1 яйцо"
+
+    final_message = f"Награда за квест «{quest['name']}» получена! {reward_message}"
+    if not reward_message:
+        final_message = f"Квест «{quest['name']}» завершен и отмечен как полученный."
+
+    return True, final_message

@@ -1,13 +1,21 @@
+# bot/handlers/start.py
+
 from datetime import datetime
 from math import ceil
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from bot.handlers.pets import show_pets_paginated
-from db.db import fetch_all, fetch_one, execute_query, get_user_quests, insert_quest
 import json
+
+# Import your DB functions
+from db.db import fetch_all, fetch_one, execute_query, get_user_quests, insert_quest, complete_quest, claim_quest_reward
+
+# Import show_pets_paginated from pets.py
+# IMPORTANT: Ensure show_pets_paginated in pets.py is updated to match the new signature:
+# async def show_pets_paginated(uid: int, source_message: Message | CallbackQuery, page: int = 1):
+# It should behave like show_quests and show_zones below: send new message if called as tab, edit if paginating.
+from bot.handlers.pets import show_pets_paginated 
 
 router = Router()
 
@@ -30,62 +38,69 @@ async def cmd_start(message: Message):
         
         await message.answer("👋 Добро пожаловать в Petropolis!\nТы получил 500 петкойнов на старт 💰")
     else:
-        await message.answer("👋 Ты уже зарегистрирован!\nНапиши /profile, чтобы посмотреть свои данные.")
+        await message.answer("👋 Ты уже зарегистрирован!\nНапиши /pprofile, чтобы посмотреть свои данные.")
 
+# Helper function for "Back to Profile" button
 def back_to_profile_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="🔙 Назад в Профиль", callback_data="profile_back")
     return kb.as_markup()
 
-# --- Main Profile Command ---
+# --- Main Profile Command Handler ---
 @router.message(Command("pprofile"))
 async def profile_cmd(message: Message):
     await show_profile(message.from_user.id, message)
 
 # ——————— Displaying the main profile ———————
-async def show_profile(uid: int, message: Message | CallbackQuery):
+async def show_profile(uid: int, source_message: Message | CallbackQuery):
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+
     if not user:
-        # If user is not registered, ask them to /start
-        if isinstance(message, CallbackQuery):
-            await message.message.answer("Ты ещё не зарегистрирован. Напиши /start!", parse_mode="HTML")
-            await message.answer() # Acknowledge callback query
+        response_text = "Ты ещё не зарегистрирован. Напиши /pstart!"
+        if isinstance(source_message, CallbackQuery):
+            await source_message.message.answer(response_text, parse_mode="HTML")
+            await source_message.answer()
         else:
-            await message.answer("Ты ещё не зарегистрирован. Напиши /start!", parse_mode="HTML")
+            await source_message.answer(response_text, parse_mode="HTML")
         return
 
-    # Eggs for profile summary (even if inventory is not fully built)
     eggs = []
     try:
         eggs = json.loads(user["eggs"]) if user["eggs"] else []
-    except Exception:
-        # Handle cases where 'eggs' might be malformed or not a JSON string
+    except (json.JSONDecodeError, TypeError):
+        print(f"Warning: Failed to decode eggs JSON for user {uid}. Value: {user['eggs']}")
         pass
 
     kb = InlineKeyboardBuilder()
-    # Updated to reflect status of inventory and separate commands
-    kb.button(text="🎒 Инвентарь", callback_data="profile_inventory")
-    kb.button(text="📜 Квесты", callback_data="profile_quests")
-    kb.button(text="🧭 Зоны", callback_data="profile_zones")
-    kb.button(text="🐾 Питомцы", callback_data="profile_pets")
-    kb.adjust(2, 2) # Adjusting layout for 4 buttons
+    kb.button(text="🎒 Инвентарь", callback_data="show_tab_inventory")
+    kb.button(text="📜 Квесты", callback_data="show_tab_quests")
+    kb.button(text="🧭 Зоны", callback_data="show_tab_zones")
+    kb.button(text="🐾 Питомцы", callback_data="show_tab_pets")
+    kb.adjust(2, 2)
 
     zone_display = user.get("active_zone") or "—"
-
-    # Fetch user's first name for the profile
-    user_display_name = f"Пользователь {uid}" # Default fallback
+    user_display_name = f"Пользователь {uid}"
     try:
-        chat = await message.bot.get_chat(uid)
-        user_display_name = chat.first_name if chat.first_name else chat.full_name
-    except Exception:
-        # If get_chat fails, use the default display name
-        pass
+        bot_instance = None
+        if isinstance(source_message, Message):
+            bot_instance = source_message.bot
+        elif isinstance(source_message, CallbackQuery):
+            bot_instance = source_message.message.bot
+
+        if bot_instance:
+            chat = await bot_instance.get_chat(uid)
+            user_display_name = chat.first_name if chat.first_name else chat.full_name
+        else:
+            user_display_name = source_message.from_user.first_name or f"Пользователь {uid}"
+    except Exception as e:
+        print(f"Error fetching chat info for user {uid}: {e}")
+        user_display_name = source_message.from_user.first_name or f"Пользователь {uid}"
 
     text = (
         f"✨ <b>Профиль игрока: {user_display_name}</b> ✨\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"🌍 <b>Активная зона:</b> <i>{zone_display}</i>\n"
-        f"💰 <b>Петкойны:</b> {user['coins']:,}\n" # Format with comma for readability
+        f"💰 <b>Петкойны:</b> {user['coins']:,}\n"
         f"🔥 <b>Ежедневный стрик:</b> {user['streak']} дней\n"
         f"🥚 <b>Яиц в инвентаре:</b> {len(eggs)}\n"
         f"━━━━━━━━━━━━━━\n"
@@ -95,113 +110,182 @@ async def show_profile(uid: int, message: Message | CallbackQuery):
         f"➡️ <i>Выбери вкладку ниже:</i>"
     )
 
-    if isinstance(message, CallbackQuery):
-        await message.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
-        await message.answer() # Acknowledge callback query
+    if isinstance(source_message, CallbackQuery):
+        # If coming from a callback (like "Back to Profile"), delete the old message
+        # and send a new one for a fresh profile view.
+        try:
+            await source_message.message.delete()
+        except Exception as e:
+            print(f"Could not delete message for user {uid}: {e}")
+        await source_message.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await source_message.answer() # Acknowledge the callback query
     else:
-        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        # If coming from a /pprofile command, just send a new message
+        await source_message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
-# ——————— Handling "Back" button ———————
+# ——————— Handling "Back to Profile" button ———————
 @router.callback_query(F.data == "profile_back")
 async def back_callback(call: CallbackQuery):
-    await show_profile(call.from_user.id, call) # Pass the CallbackQuery object directly
+    # This button now triggers a full re-display of the profile, simulating a command
+    # It will delete the current message (e.g., quests list) and send a new profile message.
+    await show_profile(call.from_user.id, call)
 
-# ——————— Profile Tabs Handling ———————
-@router.callback_query(F.data.startswith("profile_"))
-async def profile_tabs_callback(call: CallbackQuery):
+
+# ——————— Helper Functions for Each Profile Tab (DELETE old, SEND NEW Message) ———————
+
+async def _show_inventory_tab(call: CallbackQuery):
     uid = call.from_user.id
-    tab = call.data
-    text = ""
-    reply_markup = back_to_profile_kb() # Default back button
-
-    if tab == "profile_inventory":
-        text = (
-            "🎒 <b>Инвентарь</b>\n\n"
-            "Твой инвентарь пока пуст... или еще в разработке! 😉 "
-            "Скоро здесь появятся твои сокровища и коллекционные предметы!\n\n"
-            "<i>Заходи попозже, и мы покажем, что есть в рюкзаке!</i>"
-        )
+    # Acknowledge the callback immediately
+    await call.answer()
     
-    elif tab == "profile_quests":
-        quests = await fetch_all("SELECT * FROM quests WHERE user_id = $1", {"uid": uid})
-        active_quests = [q for q in quests if not q.get("completed", False)]
-        completed_quests = [q for q in quests if q.get("completed", False) and not q.get("claimed", False)]
-        claimed_quests = [q for q in quests if q.get("claimed", False)]
+    # Delete the previous message (main profile)
+    try:
+        await call.message.delete()
+    except Exception as e:
+        print(f"Could not delete message for user {uid}: {e}")
 
-        text = (
-            f"📜 <b>Твои квесты:</b>\n\n"
-            f"🎯 Активных: <b>{len(active_quests)}</b>\n"
-            f"✅ Готовых к получению: <b>{len(completed_quests)}</b>\n"
-            f"🎁 Завершено и получено: <b>{len(claimed_quests)}</b>\n\n"
-            f"<i>Хочешь увидеть все детали?</i>"
-        )
-        kb = InlineKeyboardBuilder()
-        kb.button(text="🔍 Показать все квесты", callback_data="show_all_quests") # Link to /quests functionality
-        kb.add(InlineKeyboardButton(text="🔙 Назад в Профиль", callback_data="profile_back"))
-        kb.adjust(1)
-        reply_markup = kb.as_markup()
+    text = (
+        "🎒 <b>Инвентарь</b>\n\n"
+        "Твой инвентарь пока пуст... или еще в разработке! 😉 "
+        "Скоро здесь появятся твои сокровища и коллекционные предметы!\n\n"
+        "<i>Заходи попозже, и мы покажем, что есть в рюкзаке!</i>"
+    )
+    # Send a NEW message for the tab content
+    await call.message.answer(text, reply_markup=back_to_profile_kb(), parse_mode="HTML")
 
-    elif tab == "profile_zones":
-        user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
-        user_zones = await fetch_all("SELECT * FROM user_zones WHERE user_id = $1", {"uid": uid})
-        unlocked = {z["zone"] for z in user_zones if z["unlocked"]}
-        active_zone_name = user.get("active_zone") or "Не выбрана"
+async def _show_quests_tab(call: CallbackQuery):
+    uid = call.from_user.id
+    await call.answer() # Acknowledge
 
-        text = (
-            f"🧭 <b>Зоны исследования:</b>\n\n"
-            f"🌟 Активная зона: <b>{active_zone_name}</b>\n"
-            f"🔓 Открыто зон: <b>{len(unlocked)}</b>\n\n"
-            f"<i>Готов к новым приключениям?</i>"
-        )
-        kb = InlineKeyboardBuilder()
-        kb.button(text="🗺️ Управлять зонами", callback_data="show_all_zones") # Link to /zones functionality
-        kb.add(InlineKeyboardButton(text="🔙 Назад в Профиль", callback_data="profile_back"))
-        kb.adjust(1)
-        reply_markup = kb.as_markup()
+    # Delete the previous message (main profile)
+    try:
+        await call.message.delete()
+    except Exception as e:
+        print(f"Could not delete message for user {uid}: {e}")
 
-    elif tab == "profile_pets":
-        pets = await fetch_all("SELECT * FROM pets WHERE user_id = $1", {"uid": uid})
-        text = (
-            f"🐾 <b>Твои питомцы:</b>\n\n"
-            f"У тебя <b>{len(pets)}</b> милых и сильных питомцев! ✨\n\n"
-            f"<i>Заботься о них, и они принесут тебе много петкойнов!</i>"
-        )
-        kb = InlineKeyboardBuilder()
-        kb.button(text="📊 Посмотреть всех питомцев", callback_data="show_all_pets") # Link to /pets functionality
-        kb.add(InlineKeyboardButton(text="🔙 Назад в Профиль", callback_data="profile_back"))
-        kb.adjust(1)
-        reply_markup = kb.as_markup()
+    # Call the main /quests display logic, which will now send a NEW message
+    await show_quests(call) # Pass the CallbackQuery directly
 
+async def _show_zones_tab(call: CallbackQuery):
+    uid = call.from_user.id
+    await call.answer() # Acknowledge
+
+    # Delete the previous message (main profile)
+    try:
+        await call.message.delete()
+    except Exception as e:
+        print(f"Could not delete message for user {uid}: {e}")
+
+    await show_zones(uid, call)
+
+async def _show_pets_tab(call: CallbackQuery):
+    uid = call.from_user.id
+    await call.answer() # Acknowledge
+
+    # Delete the previous message (main profile)
+    try:
+        await call.message.delete()
+    except Exception as e:
+        print(f"Could not delete message for user {uid}: {e}")
+
+    await show_pets_paginated(uid, call)
+
+
+# ——————— Router for Profile Tabs (Directly calls _show_tab helpers) ———————
+@router.callback_query(F.data.startswith("show_tab_"))
+async def profile_tabs_router(call: CallbackQuery):
+    tab_suffix = call.data.split("show_tab_")[1]
+    if tab_suffix == "inventory":
+        await _show_inventory_tab(call)
+    elif tab_suffix == "quests":
+        await _show_quests_tab(call)
+    elif tab_suffix == "zones":
+        await _show_zones_tab(call)
+    elif tab_suffix == "pets":
+        await _show_pets_tab(call)
     else:
-        text = "⚠️ Неизвестная вкладка. Попробуй ещё раз!"
+        await call.answer("⚠️ Неизвестная вкладка.", show_alert=True)
 
-    await call.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
-    await call.answer()
+@router.message(Command("quests"))
+async def show_quests_command_handler(message: Message):
+    # This is for when /quests is typed directly
+    await show_quests(message)
 
-# --- Handlers for navigating to dedicated commands ---
-# These will simulate calling the commands, you might need to adjust
-# them slightly based on how your /quests, /zones, /pets commands
-# are structured to be callable from within other handlers.
-# For simplicity, these just call the main functions for those commands.
+# Unified function for displaying quests.
+# It handles both initial display (new message) and pagination (edit message).
+async def show_quests(source_message: Message | CallbackQuery, page: int = 1):
+    uid = source_message.from_user.id
+    
+    # Determine if this is an initial call (from /quests command or profile tab)
+    # or a pagination/action within the quests view.
+    is_initial_call = isinstance(source_message, Message) or source_message.data.startswith("show_tab_quests")
+    
+    # If it's a pagination callback, update the page number
+    if isinstance(source_message, CallbackQuery) and source_message.data.startswith("quests_page:"):
+        page = int(source_message.data.split(":")[1])
 
-@router.callback_query(F.data == "show_all_quests")
-async def show_all_quests_callback(call: CallbackQuery):
-    # Assuming show_quests is defined elsewhere and takes message/call as argument
-    # If show_quests expects a Message object, you might need to mock one or
-    # refactor show_quests to accept CallbackQuery directly.
-    # For now, calling the function directly.
-    await show_quests(call) # Assuming show_quests can handle a CallbackQuery
-    await call.answer()
+    quests = await get_user_quests(uid)
 
-@router.callback_query(F.data == "show_all_zones")
-async def show_all_zones_callback(call: CallbackQuery):
-    await show_zones(call.from_user.id, call) # Assuming show_zones handles CallbackQuery
-    await call.answer()
+    if not quests:
+        text = "📜 У тебя пока нет активных квестов."
+        markup = back_to_profile_kb()
+    else:
+        text, markup_builder = build_quests_text_and_markup(quests, page)
+        # Add back to profile button to pagination markup
+        markup_builder.add(InlineKeyboardButton(text="🔙 Назад в Профиль", callback_data="profile_back"))
+        markup_builder.adjust(1) # Adjust last row to put back button on its own
+        markup = markup_builder.as_markup()
 
-@router.callback_query(F.data == "show_all_pets")
-async def show_all_pets_callback(call: CallbackQuery):
-    await show_pets_paginated(call.from_user.id, call) # Assuming show_pets_paginated handles CallbackQuery
-    await call.answer()
+    if is_initial_call:
+        await source_message.answer(text, reply_markup=markup, parse_mode="HTML")
+    elif isinstance(source_message, CallbackQuery):
+        # For pagination callbacks (quests_page:X) or claim_quest, EDIT the current message
+        await source_message.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        await source_message.answer() # Acknowledge the callback
+
+@router.message(Command("zones"))
+async def zones_command_handler(message: Message):
+    # For when /zones is typed directly
+    await show_zones(message.from_user.id, message)
+
+# Unified function for displaying zones.
+# It handles both initial display (new message) and actions (edit message).
+async def show_zones(uid: int, source_message: Message | CallbackQuery):
+    zones_data = await fetch_all("SELECT * FROM zones")
+    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+    user_zones = await fetch_all("SELECT * FROM user_zones WHERE user_id = $1", {"uid": uid})
+    unlocked = {z["zone"] for z in user_zones if z["unlocked"]}
+    active = user.get("active_zone", "Лужайка")
+
+    text = "🧭 <b>Твои зоны:</b>\n\n"
+    kb = InlineKeyboardBuilder()
+
+    for zone in zones_data:
+        name = zone["name"]
+        is_unlocked = name in unlocked
+        is_active = name == active
+        status = "🌟 Активна" if is_active else ("✅ Открыта" if is_unlocked else "🔒 Закрыта")
+
+        text += f"🔹 <b>{name}</b>\n📖 {zone['description']}\n💰 Стоимость: {zone['cost']} петкойнов\n{status}\n\n"
+
+        if is_unlocked:
+            if not is_active:
+                kb.button(text=f"📍 Включить {name}", callback_data=f"zone_set:{name}")
+        else:
+            kb.button(text=f"🔓 Открыть {name}", callback_data=f"zone_buy:{name}")
+
+    kb.add(InlineKeyboardButton(text="🔙 Назад в Профиль", callback_data="profile_back")) # Always add back button
+    kb.adjust(1) # Adjust layout to put back button on its own line
+    markup = kb.as_markup()
+
+    is_initial_call = isinstance(source_message, Message) or source_message.data.startswith("show_tab_zones")
+
+    if is_initial_call:
+        await source_message.answer(text, reply_markup=markup, parse_mode="HTML")
+    elif isinstance(source_message, CallbackQuery):
+        # For set/buy zone callbacks, EDIT the current message
+        await source_message.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        await source_message.answer() # Acknowledge the callback
 
 def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: int = 3):
     total_pages = max(1, ceil(len(quests) / per_page))
@@ -211,54 +295,116 @@ def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: in
     page_quests = quests[start:end]
 
     text = "🎯 <b>Твои квесты:</b>\n\n"
-    inline_buttons = []
+    kb = InlineKeyboardBuilder() # Use InlineKeyboardBuilder here for flexibility
 
     for q in page_quests:
         progress = f"{q['progress']}/{q['goal']}" if q['goal'] > 0 else "Неограниченный"
         status = "✅ Завершён" if q["completed"] else "🔄 В процессе"
-        reward = f"💰 {q['reward_coins']} петкойнов" if q['reward_coins'] > 0 else "🎁 Яйцо"
+        reward_display = []
+        if q['reward_coins'] > 0:
+            reward_display.append(f"💰 {q['reward_coins']} петкойнов")
+        if q.get('reward_egg', False): # Check for reward_egg explicitly
+            reward_display.append("🥚 1 яйцо")
+        
+        reward_text = "Награда: " + ", ".join(reward_display) if reward_display else "Без награды"
+
 
         text += (
             f"🔹 <b>{q['name']}</b>\n"
             f"📖 {q['description']}\n"
             f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}\n"
-            f"{reward}\n\n"
+            f"{reward_text}\n\n"
         )
 
         if q["completed"] and not q.get("claimed", False):
-            inline_buttons.append([
-                InlineKeyboardButton(
-                    text=f"🎁 Забрать «{q['name']}»",
-                    callback_data=f"claim_quest:{q['name']}"
-                )
-            ])
-
-    nav_buttons = []
+            kb.button(text=f"🎁 Забрать «{q['name']}»", callback_data=f"claim_quest:{q['id']}")
+            
+    # Add pagination buttons if necessary
+    nav_buttons_row = []
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"quests_page:{page - 1}"))
-    nav_buttons.append(InlineKeyboardButton(text=f"📄 Страница {page}/{total_pages}", callback_data="noop"))
+        nav_buttons_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"quests_page:{page - 1}"))
+    nav_buttons_row.append(InlineKeyboardButton(text=f"📄 Страница {page}/{total_pages}", callback_data="noop"))
     if page < total_pages:
-        nav_buttons.append(InlineKeyboardButton(text="➡️ Вперёд", callback_data=f"quests_page:{page + 1}"))
+        nav_buttons_row.append(InlineKeyboardButton(text="➡️ Вперёд", callback_data=f"quests_page:{page + 1}"))
+    
+    if nav_buttons_row:
+        kb.row(*nav_buttons_row) # Add navigation buttons as a row
 
-    if nav_buttons:
-        inline_buttons.append(nav_buttons)
+    return text.strip(), kb # Return text and the InlineKeyboardBuilder instance
 
-    markup = InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-    return text.strip(), markup
 
-@router.message(Command("quests"))
-async def show_quests(message: Message):
-    uid = message.from_user.id
-    quests = await get_user_quests(uid)
-
-    if not quests:
-        await message.answer("📜 У тебя пока нет активных квестов.")
+@router.callback_query(F.data.startswith("claim_quest:"))
+async def claim_quest_callback(call: CallbackQuery):
+    uid = call.from_user.id
+    try:
+        quest_id = int(call.data.split(":")[1])
+    except ValueError:
+        await call.answer("Неверный ID квеста.", show_alert=True)
         return
 
-    # Заново беремо список вже з оновленнями
-    quests = await get_user_quests(uid)
-    text, markup = build_quests_text_and_markup(quests, page=1)
-    await message.answer(text, reply_markup=markup)
+    success, message_text = await claim_quest_reward(uid, quest_id)
+    
+    await call.answer(message_text, show_alert=True)
+    
+    await show_quests(call) # Re-display the updated quests
+
+
+@router.callback_query(F.data.startswith("quests_page:"))
+async def paginate_quests_callback(call: CallbackQuery):
+    # This pagination handler now just calls show_quests, which will handle the edit.
+    await show_quests(call)
+
+
+@router.callback_query(F.data.startswith("zone_set:"))
+async def set_zone_callback(call: CallbackQuery):
+    uid = call.from_user.id
+    zone_name = call.data.split(":")[1]
+
+    await execute_query("UPDATE users SET active_zone = $1 WHERE user_id = $2", {
+        "active_zone": zone_name, "uid": uid
+    })
+
+    await call.answer(f"🌍 Зона «{zone_name}» выбрана!")
+    # Re-display zones, editing the current message
+    await show_zones(uid, call)
+
+@router.callback_query(F.data.startswith("zone_buy:"))
+async def buy_zone_callback(call: CallbackQuery):
+    uid = call.from_user.id
+    zone_name = call.data.split(":")[1]
+
+    zone = await fetch_one("SELECT * FROM zones WHERE name = $1", {"name": zone_name})
+    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+
+    if not zone or not user:
+        await call.answer("Ошибка загрузки зоны.", show_alert=True)
+        return
+
+    exists = await fetch_one("SELECT * FROM user_zones WHERE user_id = $1 AND zone = $2", {
+        "uid": uid, "zone": zone_name
+    })
+    if exists and exists["unlocked"]:
+        await call.answer("Эта зона уже открыта.", show_alert=True)
+        return
+
+    cost = zone["cost"]
+    if user["coins"] < cost:
+        await call.answer("Недостаточно петкойнов 💸", show_alert=True)
+        return
+
+    await execute_query("UPDATE users SET coins = coins - $1 WHERE user_id = $2", {
+        "cost": cost, "uid": uid # Changed 'coins' key to 'cost' for clarity with query
+    })
+
+    await execute_query(
+        "INSERT INTO user_zones (user_id, zone, unlocked) VALUES ($1, $2, TRUE) "
+        "ON CONFLICT (user_id, zone) DO UPDATE SET unlocked = TRUE",
+        {"uid": uid, "zone": zone_name}
+    )
+
+    await call.answer(f"🎉 Зона «{zone_name}» успешно открыта!")
+    # Re-display zones, editing the current message
+    await show_zones(uid, call)
 
 async def check_quest_progress(uid: int, message: Message = None):
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
@@ -305,106 +451,6 @@ async def check_quest_progress(uid: int, message: Message = None):
                 "UPDATE quests SET progress = $1 WHERE id = $2",
                 {"progress": new_progress, "id": q["id"]}
             )
-
-@router.callback_query(F.data.startswith("quests_page:"))
-async def paginate_quests(call: CallbackQuery):
-    uid = call.from_user.id
-    page = int(call.data.split(":")[1])
-    quests = await get_user_quests(uid)
-
-    text, markup = build_quests_text_and_markup(quests, page)
-    await call.message.edit_text(text, reply_markup=markup)
-    await call.answer()
-
-@router.message(Command("zones"))
-async def zones_cmd(message: Message):
-    uid = message.from_user.id
-    await show_zones(uid, message)
-
-async def show_zones(uid: int, message: Message | CallbackQuery):
-    zones = await fetch_all("SELECT * FROM zones")
-    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
-    user_zones = await fetch_all("SELECT * FROM user_zones WHERE user_id = $1", {"uid": uid})
-    unlocked = {z["zone"] for z in user_zones if z["unlocked"]}
-    active = user.get("active_zone", "Лужайка")  # За замовчуванням
-
-    text = "🧭 <b>Твои зоны:</b>\n\n"
-    kb = InlineKeyboardBuilder()
-
-    for zone in zones:
-        name = zone["name"]
-        is_unlocked = name in unlocked
-        is_active = name == active
-        status = "🌟 Активна" if is_active else ("✅ Открыта" if is_unlocked else "🔒 Закрыта")
-
-        text += f"🔹 <b>{name}</b>\n📖 {zone['description']}\n💰 Стоимость: {zone['cost']} петкойнов\n{status}\n\n"
-
-        # Кнопки:
-        if is_unlocked:
-            if not is_active:
-                kb.button(text=f"📍 Включить {name}", callback_data=f"zone_set:{name}")
-        else:
-            kb.button(text=f"🔓 Открыть {name}", callback_data=f"zone_buy:{name}")
-
-    kb.button(text="🔙 Назад", callback_data="profile_back")
-    markup = kb.as_markup()
-
-    if isinstance(message, CallbackQuery):
-        await message.message.edit_text(text, reply_markup=markup)
-        await message.answer()
-    else:
-        await message.answer(text, reply_markup=markup)
-
-@router.callback_query(F.data.startswith("zone_set:"))
-async def set_zone_callback(call: CallbackQuery):
-    uid = call.from_user.id
-    zone_name = call.data.split(":")[1]
-
-    await execute_query("UPDATE users SET active_zone = $1 WHERE user_id = $2", {
-        "active_zone": zone_name, "uid": uid
-    })
-
-    await call.answer(f"🌍 Зона «{zone_name}» выбрана!")
-    await show_zones(uid, call)
-
-@router.callback_query(F.data.startswith("zone_buy:"))
-async def buy_zone_callback(call: CallbackQuery):
-    uid = call.from_user.id
-    zone_name = call.data.split(":")[1]
-
-    zone = await fetch_one("SELECT * FROM zones WHERE name = $1", {"name": zone_name})
-    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
-
-    if not zone or not user:
-        await call.answer("Ошибка загрузки зоны.", show_alert=True)
-        return
-
-    # Вже куплено?
-    exists = await fetch_one("SELECT * FROM user_zones WHERE user_id = $1 AND zone = $2", {
-        "uid": uid, "zone": zone_name
-    })
-    if exists and exists["unlocked"]:
-        await call.answer("Эта зона уже открыта.", show_alert=True)
-        return
-
-    cost = zone["cost"]
-    if user["coins"] < cost:
-        await call.answer("Недостаточно петкойнов 💸", show_alert=True)
-        return
-
-    # Списуємо, додаємо зону
-    await execute_query("UPDATE users SET coins = coins - $1 WHERE user_id = $2", {
-        "uid": uid, "coins": cost
-    })
-
-    await execute_query(
-        "INSERT INTO user_zones (user_id, zone, unlocked) VALUES ($1, $2, TRUE) "
-        "ON CONFLICT (user_id, zone) DO UPDATE SET unlocked = TRUE",
-        {"uid": uid, "zone": zone_name}
-    )
-
-    await call.answer(f"🎉 Зона «{zone_name}» успешно открыта!")
-    await show_zones(uid, call)
 
 async def check_zone_unlocks(uid: int, message: Message | None = None):
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
@@ -458,4 +504,3 @@ async def get_zone_buff(user: dict) -> float:
     if zone and zone.get("buff_type") == "coin_rate":
         return 1.0 + zone.get("buff_value", 0) / 100
     return 1.0
-
