@@ -124,22 +124,29 @@ async def pets_cb(call: CallbackQuery):
     await call.answer()
     await show_pets_paginated(call.from_user.id, call.message, page=1)
 
-# Command handlers fallback
-@router.message(Command("inventory"))
-async def inventory_cmd(message: Message):
-    await message.answer("🎒 Инвентарь: в разработке.")
+@router.callback_query(F.data == "inventory_cb")
+async def inventory_cb(call: CallbackQuery):
+    await call.answer()
+    # Не трогаем профиль, просто отправляем новый ответ
+    await call.message.answer("🎒 Инвентарь: в разработке.")
 
-@router.message(Command("quests"))
-async def show_quests_command(message: Message):
-    await show_quests(message)
+@router.callback_query(F.data == "quests_cb")
+async def quests_cb(call: CallbackQuery):
+    await call.answer()
+    # Показываем квесты новым сообщением, профиль остаётся
+    await show_quests(call)
 
-@router.message(Command("zones"))
-async def zones_command(message: Message):
-    await show_zones(message.from_user.id, message)
+@router.callback_query(F.data == "zones_cb")
+async def zones_cb(call: CallbackQuery):
+    await call.answer()
+    # Показываем зоны новым сообщением
+    await show_zones(call.from_user.id, call)
 
-@router.message(Command("pets"))
-async def pets_command(message: Message):
-    await show_pets_paginated(message.from_user.id, message, page=1)
+@router.callback_query(F.data == "pets_cb")
+async def pets_cb(call: CallbackQuery):
+    await call.answer()
+    # Показываем питомцев новым сообщением
+    await show_pets_paginated(call.from_user.id, call, page=1)
 
 # Unified function for quests
 async def show_quests(source_message: Message | CallbackQuery, page: int = 1):
@@ -217,9 +224,9 @@ def build_quests_text_and_markup(quests: list[dict], page: int = 1, per_page: in
         reward_text = "Награда: " + ", ".join(rewards) if rewards else "Без награды"
 
         text += (
-            f"🔹 <b>{q['name']}</b>"
-            f"📖 {q['description']}"
-            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}"
+            f"🔹 <b>{q['name']}</b>\n"
+            f"📖 {q['description']}\n"
+            f"🌍 Зона: {q['zone']} | Прогресс: {progress} | Статус: {status}\n"
             f"{reward_text}"
         )
         if q['completed'] and not q.get('claimed', False):
