@@ -237,7 +237,7 @@ async def explore_cmd(message: Message, command: CommandObject):
     await update_user_energy(uid, new_energy_after_explore, datetime.utcnow())
 
     await execute_query("UPDATE users SET last_explore_time = $1, active_zone = $2 WHERE user_id = $3", 
-                        {"time": datetime.utcnow().isoformat(), "active_zone": zone_name, "uid": uid})
+                        {"time": datetime.now(timezone.utc), "active_zone": zone_name, "uid": uid})
 
     # Rewards based on base ranges and zone buff_value
     buff_multiplier = 1 + (zone_data['buff_value'] / 100) # Buff value also affects rewards
