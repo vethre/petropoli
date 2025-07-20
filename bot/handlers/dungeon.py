@@ -365,19 +365,19 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
         # Симулируем бой
         battle_result = simulate_battle(pets_data, monster_info)
         
-        if battle_result['victory']:
-            dungeon_total_xp += battle_result['xp_gained']
-            dungeon_total_coins += battle_result['coins_gained']
+        if battle_result['win']:
+            dungeon_total_xp += battle_result['xp_reward']
+            dungeon_total_coins += battle_result['coin_reward']
             await message.answer(
                 f"🏆 Победа над <b>{current_monster_name}</b>!\n"
-                f"Получено: {battle_result['xp_gained']} XP, {battle_result['coins_gained']} 💰"
+                f"Получено: {battle_result['xp_reward']} XP, {battle_result['coin_reward']} 💰"
                 f"\n\nПрогресс данжа: {i + 1}/{num_encounters_to_do} стычек."
                 f"\nОбщий заработок в данже: {dungeon_total_xp} XP, {dungeon_total_coins} 💰",
                 parse_mode="HTML"
             )
             # Обновляем XP питомцев в БД после каждой победы
             for pet in pets_data:
-                await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2", {"xp_gained": battle_result['xp_gained'], "pet_id": pet['id']})
+                await execute_query("UPDATE pets SET xp = xp + $1 WHERE id = $2", {"xp_reward": battle_result['xp_reward'], "pet_id": pet['id']})
                 # TODO: Добавить проверку уровня и повышение уровня здесь или в отдельной функции
             
             # Обновляем данные в FSM контексте
@@ -390,8 +390,7 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
         else:
             await message.answer(
                 f"💀 Ваша команда потерпела поражение от <b>{current_monster_name}</b>. Поход окончен!\n"
-                f"Вы заработали: {dungeon_total_xp} XP, {dungeon_total_coins} 💰 (до поражения)."
-                f"\nПожалуйста, используйте /heal для восстановления питомцев.",
+                f"Вы заработали: {dungeon_total_xp} XP, {dungeon_total_coins} 💰 (до поражения).",
                 parse_mode="HTML"
             )
             await state.clear() # Сбрасываем состояние после поражения
