@@ -285,7 +285,7 @@ async def top_pet_cmd(message: Message):
 
     # Выдаем награду владельцу
     await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2", {"coins": TOP_PET_COIN_REWARD, "uid": selected_owner_id})
-    await update_pet_stats_and_xp(selected_pet['id'], xp_gain=TOP_PET_XP_REWARD) # Бонус XP для питомца
+    await update_pet_stats_and_xp(message.bot, uid, selected_pet['id'], xp_gain=TOP_PET_XP_REWARD) # Бонус XP для питомца
     
     owner_username_record = await fetch_one("SELECT username FROM users WHERE user_id = $1", {"uid": selected_owner_id})
     owner_username = owner_username_record['username'] if owner_username_record else "Неизвестный"
