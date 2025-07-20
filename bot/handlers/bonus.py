@@ -287,16 +287,21 @@ async def top_pet_cmd(message: Message):
     await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2", {"coins": TOP_PET_COIN_REWARD, "uid": selected_owner_id})
     await update_pet_stats_and_xp(message.bot, uid, selected_pet['id'], xp_gain=TOP_PET_XP_REWARD) # Бонус XP для питомца
     
-    owner_username_record = await fetch_one("SELECT username FROM users WHERE user_id = $1", {"uid": selected_owner_id})
-    owner_username = owner_username_record['username'] if owner_username_record else "Неизвестный"
+    selected_owner_info = await message.bot.get_chat(selected_owner_id)
+    
+    # Определяем отображаемое имя для пинга
+    owner_display_name = selected_owner_info.first_name if selected_owner_info.first_name else selected_owner_info.full_name
+    
+    # Формируем пинг
+    owner_ping = f"<a href='tg://user?id={selected_owner_id}'>{owner_display_name}</a>"
+
 
     announcement_text = (
         f"🌟 ВНИМАНИЕ! Выбран новый <b>Питомец Дня</b>!\n"
         f"Почетный титул \"{selected_pet_nickname}\" получает питомец "
         f"<b>{selected_pet['name']}</b> ({selected_pet['rarity']}, Ур. {selected_pet['level']}) "
-        f"принадлежащий пользователю @{owner_username}!\n\n"
+        f"принадлежащий пользователю {owner_ping}!\n\n" # <-- Изменено здесь
         f"Владелец получает {TOP_PET_COIN_REWARD} 💰, а {selected_pet['name']} получает {TOP_PET_XP_REWARD} XP!"
     )
     
-    # Отправляем сообщение в чат, где была вызвана команда
     await message.answer(announcement_text, parse_mode="HTML")
