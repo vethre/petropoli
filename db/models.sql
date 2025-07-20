@@ -55,3 +55,24 @@ CREATE TABLE IF NOT EXISTS arena_team (
     losses INT DEFAULT 0,
     current_rank TEXT DEFAULT 'Новичок'
 );
+
+CREATE TABLE IF NOT EXISTS monsters (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    level INTEGER NOT NULL,
+    hp INTEGER NOT NULL,
+    atk INTEGER NOT NULL,
+    "def" INTEGER NOT NULL, 
+    xp_reward INTEGER NOT NULL,
+    coin_reward INTEGER NOT NULL,
+    possible_item TEXT[], 
+    zone_name TEXT NOT NULL,
+    FOREIGN KEY (zone_name) REFERENCES zones(name)
+);
+
+INSERT INTO monsters (name, description, level, hp, atk, "def", xp_reward, coin_reward, possible_item, zone_name) VALUES
+('Маленький слизень', 'Желеобразное существо.', 1, 30, 5, 2, 20, 10, '{}', 'Лужайка'),
+('Дикий кабан', 'Опасное животное.', 5, 80, 15, 8, 50, 25, '{"Мясо"}', 'Ферма'),
+('Горный тролль', 'Огромный и сильный.', 10, 150, 30, 15, 120, 60, '{"Руда", "Кость"}', 'Гора')
+ON CONFLICT (name) DO NOTHING;
