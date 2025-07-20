@@ -371,7 +371,7 @@ async def join_arena(message: Message):
         return
     
     user_data_for_coins = await fetch_one("SELECT coins FROM users WHERE user_id = $1", {"uid": uid})
-    if user_data_for_coins.get("pet_coins", 0) < ARENA_JOIN_COST:
+    if user_data_for_coins.get("coins", 0) < ARENA_JOIN_COST:
         await message.answer(f"💰 У тебя недостаточно петкойнов, чтобы вступить на арену. Необходимо {ARENA_JOIN_COST} петкойнов.")
         return
     
