@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.handlers.start import check_quest_progress, check_zone_unlocks
 from db.db import fetch_one, execute_query
-from bot.utils.pet_generator import EGG_TYPES, PETS_BY_RARITY, RARITIES, RARITY_STATS_RANGE, RARITY_TOTAL_STAT_MULTIPLIER, generate_stats_for_class, roll_pet, roll_pet_from_egg_type
+from bot.utils.pet_generator import EGG_TYPES, PETS_BY_RARITY, RARITIES, RARITY_STATS_RANGE, RARITY_TOTAL_STAT_MULTIPLIER, generate_stats_for_class, roll_pet_from_egg_type
 import json
 from datetime import datetime
 
