@@ -11,6 +11,7 @@ from datetime import datetime, timedelta # Import for energy system
 router = Router()
 
 arena_queue = []
+ARENA_JOIN_COST = 20
 
 # --- Constants for Arena ---
 ARENA_MAX_ENERGY = 6
@@ -104,9 +105,10 @@ async def check_and_recharge_energy(uid: int):
 
 # ——— /team — показ або встановлення команди (No changes needed here unless you want to show energy info)
 @router.message(Command("team"))
-async def set_or_show_team(message: Message):
+async def team_command_handler(message: Message):
     uid = message.from_user.id
-    args = message.text.strip().split()[1:]
+    args = message.text.strip().split()
+    command_type = args[1].lower() if len(args) > 1 else ""
 
     user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
     if not user:
@@ -114,79 +116,210 @@ async def set_or_show_team(message: Message):
         return
 
     all_pets = await fetch_all("SELECT * FROM pets WHERE user_id = $1", {"uid": uid})
-    pet_data_by_id = {p["id"]: p for p in all_pets} 
+    pet_data_by_id = {p["id"]: p for p in all_pets}
 
-    if not args:
+    # --- /team name "Team Name" ---
+    if command_type == "name":
+        if len(args) < 3:
+            await message.answer("Используй: <code>/team name \"Название твоей команды\"</code> (обязательно в кавычках).")
+            return
+        
+        # Join remaining arguments to handle multi-word names in quotes
+        name_parts = message.text.strip().split(" ", 2) # Split by first two spaces
+        if len(name_parts) < 3:
+            await message.answer("Укажи название команды в кавычках. Пример: <code>/team name \"Крутая команда\"</code>")
+            return
+
+        team_name_raw = name_parts[2].strip()
+        if not (team_name_raw.startswith('"') and team_name_raw.endswith('"')):
+            await message.answer("Название команды должно быть в кавычках. Пример: <code>/team name \"Крутая команда\"</code>")
+            return
+        
+        team_name = team_name_raw[1:-1].strip() # Remove quotes
+
+        if not team_name:
+            await message.answer("Название команды не может быть пустым.")
+            return
+
+        if len(team_name) > 50: # Example length limit
+            await message.answer("Название команды слишком длинное (макс. 50 символов).")
+            return
+
+        existing_team_record = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
+        if existing_team_record:
+            await execute_query("UPDATE arena_team SET team_name = $1 WHERE user_id = $2",
+                                {"team_name": team_name, "uid": uid})
+        else:
+            await execute_query("INSERT INTO arena_team (user_id, pet_ids, team_name) VALUES ($1, $2, $3)",
+                                {"user_id": uid, "pet_ids": json.dumps([]), "team_name": team_name})
+
+        await message.answer(f"✅ Твоя команда теперь называется: <b>{team_name}</b>", parse_mode="HTML")
+        return
+
+    # --- /team add ID ---
+    elif command_type == "add":
+        if len(args) < 3:
+            await message.answer("Используй: <code>/team add [ID питомца]</code>")
+            return
+        
+        try:
+            pet_to_add_id = int(args[2])
+        except ValueError:
+            await message.answer("ID питомца должен быть числом.")
+            return
+
+        if pet_to_add_id not in pet_data_by_id:
+            await message.answer("Питомец с таким ID не найден или не принадлежит тебе.")
+            return
+
         current_team_ids = json.loads(user.get("active_arena_team", "[]"))
+        
+        if len(current_team_ids) >= 5: # Max pets in team
+            await message.answer("В команде уже максимум питомцев (5). Удалите кого-нибудь сначала, используя <code>/team del [ID]</code>.")
+            return
+        
+        if pet_to_add_id in current_team_ids:
+            await message.answer("Этот питомец уже в твоей команде.")
+            return
+        
+        current_team_ids.append(pet_to_add_id)
+        
+        await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
+            "active_arena_team": json.dumps(current_team_ids),
+            "uid": uid,
+        })
+        existing_team_record = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
+        if existing_team_record:
+            await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
+                "pet_ids": json.dumps(current_team_ids),
+                "uid": uid
+            })
+        else:
+            await execute_query("INSERT INTO arena_team (user_id, pet_ids) VALUES ($1, $2)",
+                                {"user_id": uid, "pet_ids": json.dumps(current_team_ids)})
+
+
+        await message.answer(f"✅ Питомец ID <code>{pet_to_add_id}</code> добавлен в твою команду. Текущая команда: {', '.join(map(str, current_team_ids))}", parse_mode="HTML")
+        return
+
+    # --- /team del ID ---
+    elif command_type == "del":
+        if len(args) < 3:
+            await message.answer("Используй: <code>/team del [ID питомца]</code>")
+            return
+        
+        try:
+            pet_to_del_id = int(args[2])
+        except ValueError:
+            await message.answer("ID питомца должен быть числом.")
+            return
+
+        current_team_ids = json.loads(user.get("active_arena_team", "[]"))
+        
+        if pet_to_del_id not in current_team_ids:
+            await message.answer("Этот питомец не в твоей команде.")
+            return
+        
+        current_team_ids.remove(pet_to_del_id)
+        
+        await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
+            "active_arena_team": json.dumps(current_team_ids),
+            "uid": uid,
+        })
+        # Update arena_team table as well
+        await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
+            "pet_ids": json.dumps(current_team_ids),
+            "uid": uid
+        })
+
+        await message.answer(f"✅ Питомец ID <code>{pet_to_del_id}</code> удален из твоей команды. Текущая команда: {', '.join(map(str, current_team_ids))}", parse_mode="HTML")
+        return
+
+    else: 
+        current_team_ids = json.loads(user.get("active_arena_team", "[]"))
+        
+        # Fetch team name
+        team_record = await fetch_one("SELECT team_name FROM arena_team WHERE user_id = $1", {"uid": uid})
+        team_name = team_record.get("team_name", "Без названия") if team_record else "Без названия"
+
         if not current_team_ids:
-            await message.answer("⚔ У тебя пока не выбрана команда для арены.\nИспользуй <code>/team id1 id2 ...</code>")
+            await message.answer(f"⚔ У тебя пока не выбрана команда для арены (Команда: <b>{team_name}</b>).\nИспользуй <code>/team add id1</code> или <code>/team id1 id2 ...</code> (старый метод).\nИспользуй <code>/team name \"Твое название\"</code>", parse_mode="HTML")
             return
         
         team_for_display = []
         for pet_id in current_team_ids:
-            # CORRECTED: Use the dictionary for lookup
             pet_data = pet_data_by_id.get(pet_id) 
             if pet_data:
-                # Ensure stats are dict for calculate_power and display
-                # Make a copy if fetch_all returns immutable rows (like asyncpg.Record)
                 pet_data_copy = dict(pet_data) 
                 pet_data_copy["stats"] = pet_data_copy["stats"] if isinstance(pet_data_copy["stats"], dict) else json.loads(pet_data_copy["stats"])
                 team_for_display.append(pet_data_copy)
         
-        # Calculate total team power from the prepared list
         total_team_power = calculate_power(team_for_display)
 
-        text = "🏟️ <b>Твоя арена-команда</b>\n\n"
-        # Add total team power at the top
+        text = f"🏟️ <b>Твоя арена-команда: {team_name}</b>\n\n" # Display team name
         text += f"📊 Общая сила команды: <b>{total_team_power}</b> 💪\n\n"
 
-        # Iterate through the prepared 'team_for_display' for the actual message content
         for idx, pet in enumerate(team_for_display, 1): 
-            stats = pet["stats"] # Stats are already parsed in team_for_display
+            stats = pet["stats"]
             text += (
                 f"🐾 <b>#{idx}</b> {pet['name']} ({pet['rarity']} | {pet['class']} | Ур. {pet.get('level', 1)})\n"
                 f"⚔ Атака: {stats['atk']} | 🛡 Защита: {stats['def']} | ❤️ Здоровье: {stats['hp']}\n"
                 f"🆔 ID: <code>{pet['id']}</code>\n\n"
             )
         await message.answer(text, parse_mode="HTML")
-    else:
-        try:
-            new_team = list(map(int, args))
-        except ValueError:
-            await message.answer("⚠ Все ID должны быть числами.")
-            return
 
-        if len(new_team) > 5:
-            await message.answer("⚠ Максимум 5 питомцев в арене.")
-            return
+async def set_multiple_pets_team(message: Message):
+    uid = message.from_user.id
+    args = message.text.strip().split()[1:]
 
-        if any(pet_id not in pet_data_by_id for pet_id in new_team):
-            await message.answer("⚠ Один или несколько ID не принадлежат тебе.")
-            return
-        
-        # Check if any pet ID is duplicated in the new team list
-        if len(new_team) != len(set(new_team)):
-            await message.answer("⚠ В команде не может быть повторяющихся питомцев.")
-            return
+    if not args or args[0].lower() in ["name", "add", "del"]:
+        return 
 
-        await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
-            "active_arena_team": json.dumps(new_team),
-            "uid": uid,
+    # This is the old "set multiple pets" logic
+    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+    if not user:
+        await message.answer("Ты ещё не зарегистрирован. Напиши /start.")
+        return
+
+    all_pets = await fetch_all("SELECT * FROM pets WHERE user_id = $1", {"uid": uid})
+    pet_data_by_id = {p["id"]: p for p in all_pets}
+
+    try:
+        new_team = list(map(int, args))
+    except ValueError:
+        await message.answer("⚠ Все ID должны быть числами.")
+        return
+
+    if len(new_team) > 5:
+        await message.answer("⚠ Максимум 5 питомцев в арене.")
+        return
+
+    if any(pet_id not in pet_data_by_id for pet_id in new_team):
+        await message.answer("⚠ Один или несколько ID не принадлежат тебе.")
+        return
+    
+    if len(new_team) != len(set(new_team)):
+        await message.answer("⚠ В команде не может быть повторяющихся питомцев.")
+        return
+
+    await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
+        "active_arena_team": json.dumps(new_team),
+        "uid": uid,
+    })
+
+    existing_team = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
+    if existing_team:
+        await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
+            "pet_ids": json.dumps(new_team),
+            "uid": uid
         })
+    else:
+        await execute_query(
+            "INSERT INTO arena_team (user_id, pet_ids) VALUES ($1, $2)",
+            {"user_id": uid, "pet_ids": json.dumps(new_team)}
+        )
 
-        existing_team = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
-        if existing_team:
-            await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
-                "pet_ids": json.dumps(new_team),
-                "uid": uid
-            })
-        else:
-            await execute_query(
-                "INSERT INTO arena_team (user_id, pet_ids) VALUES ($1, $2)",
-                {"user_id": uid, "pet_ids": json.dumps(new_team)}
-            )
-
-        await message.answer(f"✅ Твоя арена-команда обновлена!\nПитомцы: {', '.join(map(str, new_team))}", parse_mode="HTML") # Added parse_mode
+    await message.answer(f"✅ Твоя арена-команда обновлена!\nПитомцы: {', '.join(map(str, new_team))}", parse_mode="HTML")
 
 
 async def fetch_team(uid):
@@ -237,13 +370,18 @@ async def join_arena(message: Message):
         await message.answer("⏳ Ты уже в очереди на арену.")
         return
     
+    user_data_for_coins = await fetch_one("SELECT coins FROM users WHERE user_id = $1", {"uid": uid})
+    if user_data_for_coins.get("pet_coins", 0) < ARENA_JOIN_COST:
+        await message.answer(f"💰 У тебя недостаточно петкойнов, чтобы вступить на арену. Необходимо {ARENA_JOIN_COST} петкойнов.")
+        return
+    
     # Deduct energy
     new_energy = current_energy - 1
     await execute_query("UPDATE users SET arena_energy = $1, last_arena_energy_recharge = NOW() WHERE user_id = $2",
                         {"arena_energy": new_energy, "uid": uid})
 
     arena_queue.append(uid)
-    await message.answer(f"✅ Ты записался в очередь на арену! Ожидай начала битвы...\n⚡ Энергия: {new_energy}/{ARENA_MAX_ENERGY}")
+    await message.answer(f"✅ Ты записался в очередь на арену! Ожидай начала битвы...\n⚡ Энергия: {new_energy}/{ARENA_MAX_ENERGY}\n💰 Списано {ARENA_JOIN_COST} петкойнов.")
 
     # Start the matching process only if this is the first player to join the queue
     # This prevents multiple `asyncio.sleep` calls and battle loops
@@ -339,12 +477,106 @@ async def check_and_level_up_pet(bot_instance, uid: int, pet_id: int): # Add bot
             parse_mode="HTML"
         )
     return leveled_up
+async def fetch_team(uid):
+    team_data = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
+    if not team_data:
+        return None, "Без названия" # Return default name if no team data
+    
+    pet_ids = json.loads(team_data.get("pet_ids", "[]")) # Ensure pet_ids defaults to empty list
+    team_name = team_data.get("team_name", "Без названия") # Fetch team name
+    
+    pets = []
+    for pid in pet_ids:
+        pet = await fetch_one("SELECT id, name, rarity, class, stats, xp, level FROM pets WHERE id = $1 AND user_id = $2", {"id": pid, "uid": uid})
+        if pet:
+            # Convert to dict and parse stats JSON if necessary
+            pet_dict = dict(pet)
+            if 'stats' in pet_dict and isinstance(pet_dict['stats'], str):
+                pet_dict['stats'] = json.loads(pet_dict['stats'])
+            pets.append(pet_dict)
+    return pets, team_name
+
+# NEW: List of funny bot team names
+BOT_TEAM_NAMES = [
+    "Кринжовый Котодрайв",
+    "Байденский Вайб",
+    "Путинские Пельмени",
+    "ИлонГейты🚀",
+    "ТикТок Коммандос",
+    "ФлексБратья",
+    "Хайповая Халява",
+    "Живчики Selfie",
+    "Москва 404",
+    "Покерные Жестяки",
+    "Нулевой Ультиматум",
+    "Хейтеры с Марса",
+    "Окей Гугл-Зацени",
+    "НекстЛевел Сектор",
+    "Алко-Форчунчики",
+    "КиберШаманы",
+    "Аморальные Маньяки",
+    "Чайники vs Хакеры",
+    "Жириновский’s Боты",
+    "Дуда-Team",
+    "Зеля Рейнджеры",
+    "Карамельный Каратель",
+    "Сирийские Симпатяги",
+    "МемСтратеги",
+    "Рулетка🎲Судеб",
+    "ДраконФрут Баттл",
+    "Смартфонные Рыцари",
+    "Решалово Flex",
+    "Мусорные Эксперты",
+    "Ночные Навигаторы",
+    "Духовные Батончики",
+    "Постироничные Капустки",
+    "Кофе на Задворках",
+    "Офисные Бунтари",
+    "Хайповые Харизматики",
+    "Оппозиционная Балалайка",
+    "Кремлёвские Ракеты",
+    "Донбасс-Драйв",
+    "Лайповый Город",
+    "Кислотные Хайпстеры",
+    "Урбан-Монстры",
+    "Шашлык-Шедевр",
+    "Пельмени vs Паста",
+    "Профи-Фейловичи",
+    "Путин, улыбнись 😏",
+    "РЭП-комиссары",
+    "Царь-балалайка",
+    "Цензура 2.0",
+    "Кофейные Буржуи",
+    "Росатом Ежики",
+    "ХодорКидс",
+    "Рублевый Движ",
+    "Амурские Любовцы",
+    "Navalny’s Crew",
+    "Горячий Вайб 🔥",
+    "ЧатБоты vs Жиги",
+    "Фантомные Мангалисты",
+    "Скандальные Бабульки",
+    "FOMO Зазывалы",
+    "AI-Падшие Апостолы",
+    "РосКомНадзорщики",
+    "Мажорные Крутыши",
+    "Энергичные Деды",
+    "Гордон-Gang",
+    "Антиваксеры в деле",
+    "Ковид-Шутники",
+    "Coldplay-Каверы",
+    "Селфи-Маги",
+    "Чай à la Kant",
+    "Апокалипсис-Блогеры",
+    "Лягушки Лаврова",
+    "Twitch-Ганза",
+    "OpenAI-Друзья",
+    "Токсичные Леди"
+]
 
 async def run_battle(message: Message, uid1, uid2):
     team1 = await fetch_team(uid1)
     if not team1:
-        # This case should ideally be handled before calling run_battle in join_arena
-        # But as a fallback:
         await message.bot.send_message(uid1, "У тебя нет активной команды для арены. Выбери команду с помощью /team.")
         return
 
@@ -355,6 +587,7 @@ async def run_battle(message: Message, uid1, uid2):
     except Exception:
         name1 = f"Игрок {uid1}"
 
+    team_name1 = fetch_team(uid1)
     power1 = calculate_power(team1)
 
     fake_names = [
@@ -382,6 +615,7 @@ async def run_battle(message: Message, uid1, uid2):
             # Fallback to bot if opponent player has no team
             is_bot = True 
             name2 = random.choice(fake_names)
+            team_name2 = random.choice(BOT_TEAM_NAMES)
             avg_pet_power = power1 / len(team1)
             num_bot_pets = random.randint(max(1, len(team1) - 1), min(5, len(team1) + 1))
             team2 = []
@@ -397,19 +631,19 @@ async def run_battle(message: Message, uid1, uid2):
                         "hp": max(15, base_hp + random.randint(-5, 5))
                     }
                 })
-            await message.bot.send_message(uid2, "Твой противник не имеет активной команды. Ты сразишься с ботом.")
-
-        else: # Opponent is another player and has a team
+        else: 
             user2 = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid2})
             try:
                 chat = await message.bot.get_chat(uid2)
                 name2 = chat.first_name if chat.first_name else chat.full_name
             except Exception:
                 name2 = f"Игрок {uid2}"
+            team_name2 = fetch_team(uid2)
             power2 = calculate_power(team2)
-    else: # uid2 is None, directly assigned to bot
+    else:
         is_bot = True
         name2 = random.choice(fake_names)
+        team_name2 = random.choice(BOT_TEAM_NAMES)
         avg_pet_power = power1 / len(team1)
         num_bot_pets = random.randint(max(1, len(team1) - 1), min(5, len(team1) + 1))
         
@@ -429,7 +663,7 @@ async def run_battle(message: Message, uid1, uid2):
             })
     power2 = calculate_power(team2) # Recalculate power for bot team if it was generated
 
-    msg = await send_battle_intro(message, name1, power1, name2, power2)
+    msg = await send_battle_intro(message, name1, team_name1, power1, name2, team_name2, power2)
 
     wins1, wins2 = 0, 0
     
@@ -569,7 +803,7 @@ async def run_battle(message: Message, uid1, uid2):
                 parse_mode="HTML"
             )
         else: # Bot wins against player, "bot gains" for flavor
-            final_result_text += f"\nБот {name2} получает +{BASE_XP_WIN} XP и +{BASE_COINS_WIN} 💰 (виртуально)"
+            final_result_text += f"\n{name2} получает +{BASE_XP_WIN} XP и +{BASE_COINS_WIN} 💰"
 
     else: # Draw
         final_result_text = "🤝 <b>Ничья!</b> Оба игрока показали себя достойно."
@@ -620,18 +854,13 @@ async def run_battle(message: Message, uid1, uid2):
             else:
                 raise
 
-async def send_battle_intro(message: Message, name1: str, power1: int, name2: str, power2: int):
+async def send_battle_intro(message: Message, name1: str, team_name1: str, power1: int, name2: str, team_name2: str, power2: int):
     text = (
         f"⚔️ <b>Битва начинается!</b>\n"
-        f"👤 {name1} — Сила: {power1}\n"
+        f"👤 {name1} (Команда: <b>{team_name1}</b>) — Сила: {power1}\n"
         f"🆚\n"
-        f"👤 {name2} — Сила: {power2}"
+        f"👤 {name2} (Команда: <b>{team_name2}</b>) — Сила: {power2}"
     )
-    # The message should be sent to *both* players if it's a PvP battle,
-    # or just the player if it's PvE.
-    # For simplicity, we use the message.answer() which replies in the same chat where /join_arena was called.
-    # If you want to send private messages for battle logs, you would need to use message.bot.send_message(uid, text).
-    # For now, let's keep it simple as it was, replying in the chat where join_arena was initiated.
     return await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("arena_info"))
@@ -655,6 +884,7 @@ async def arena_info(message: Message):
     wins = user_arena_stats.get("wins", 0)
     losses = user_arena_stats.get("losses", 0)
     draws = user_arena_stats.get("draws", 0)
+    team_name = user_arena_stats.get("team_name")
     rank = get_rank(wins)
 
     top_users = await fetch_all("""
@@ -681,7 +911,7 @@ async def arena_info(message: Message):
     text = (
         f"🏟️ <b>Арена: статус игрока</b>\n\n"
         f"⚡ Энергия: <b>{current_energy}/{ARENA_MAX_ENERGY}</b>\n" # Display energy
-        f"👤 Игрок: <b>{username}</b>\n"
+        f"👤 Игрок: <b>{username}</b> (Команда - {team_name})\n"
         f"🔰 Ранг: <b>{rank}</b>\n"
         f"🏆 Победы: <b>{wins}</b>\n"
         f"💀 Поражения: <b>{losses}</b>\n"
