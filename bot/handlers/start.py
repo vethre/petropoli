@@ -70,6 +70,19 @@ async def show_profile(uid: int, message: Message):
     except (json.JSONDecodeError, TypeError):
         eggs = []
 
+    fav_pet_info_text = ""
+    if user['fav_pet_id']:
+        fav_pet_record = await fetch_one("SELECT name, rarity FROM pets WHERE id = $1 AND user_id = $2", {"id": user['fav_pet_id'], "user_id": uid})
+        if fav_pet_record:
+            display_name = user['fav_pet_nickname'] if user['fav_pet_nickname'] else fav_pet_record['name']
+            fav_pet_info_text = f"❤️ Любимчик: <b>{display_name}</b> ({fav_pet_record['name']}, {fav_pet_record['rarity']})\n"
+        else:
+            # Если любимый питомец не найден (удален), очищаем поле в БД
+            await execute_query("UPDATE users SET fav_pet_id = NULL, fav_pet_nickname = NULL WHERE user_id = $1", {"uid": uid})
+            fav_pet_info_text = "❤️ Любимчик: Нет (предыдущий был удален)\n"
+    else:
+        fav_pet_info_text = "❤️ Любимчик: Нет\n"
+
     # Build inline keyboard
     kb = InlineKeyboardBuilder()
     kb.button(text="🎒 Инвентарь", callback_data="inventory_cb")
@@ -90,8 +103,9 @@ async def show_profile(uid: int, message: Message):
         f"✨ <b>Профиль игрока: {display}</b> ✨\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"🌍 <b>Активная зона:</b> <i>{zone_display}</i>\n"
+        f"{fav_pet_info_text}"
         f"💰 <b>Петкойны:</b> {user['coins']:,}\n"
-        f"⚡️ <b>Энергия исследований</b>:{user['energy']}/100\n"
+        f"⚡️ <b>Энергия исследований</b>: {user['energy']}/100\n"
         f"🔥 <b>Ежедневный стрик:</b> {user['streak']} дней\n"
         f"🥚 <b>Яиц в инвентаре:</b> {len(eggs)}\n"
         f"━━━━━━━━━━━━━━\n"
