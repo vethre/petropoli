@@ -223,6 +223,8 @@ async def explore_cmd(message: Message, command: CommandObject):
 
     last_explore_time_str = user.get('last_explore_time')
     last_explore_time = datetime.fromisoformat(last_explore_time_str) if last_explore_time_str else datetime.min
+    if last_explore_time.tzinfo is None:
+        last_explore_time = last_explore_time.replace(tzinfo=timezone.utc)
     
     if datetime.now(timezone.utc) - last_explore_time < EXPLORE_COOLDOWN:
         remaining_time = EXPLORE_COOLDOWN - (datetime.now(timezone.utc) - last_explore_time)
