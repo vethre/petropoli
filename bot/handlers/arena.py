@@ -426,7 +426,6 @@ async def join_arena(message: Message):
             await run_battle(message, p1, p2)
             await asyncio.sleep(1) # Small delay between battles
 
-
 # --- NEW: Pet Level Up Logic ---
 async def check_and_level_up_pet(bot_instance, uid: int, pet_id: int): # Add bot_instance here
     pet = await fetch_one("SELECT xp, level, stats, name FROM pets WHERE id = $1 AND user_id = $2", {"id": pet_id, "uid": uid})
@@ -576,7 +575,7 @@ BOT_TEAM_NAMES = [
 ]
 
 async def run_battle(message: Message, uid1, uid2):
-    team1 = await fetch_team(uid1)
+    team1, team_name1 = await fetch_team(uid1)
     if not team1:
         await message.bot.send_message(uid1, "У тебя нет активной команды для арены. Выбери команду с помощью /team.")
         return
@@ -588,7 +587,6 @@ async def run_battle(message: Message, uid1, uid2):
     except Exception:
         name1 = f"Игрок {uid1}"
 
-    team_name1 = await fetch_team(uid1)
     power1 = calculate_power(team1)
 
     fake_names = [
@@ -611,7 +609,7 @@ async def run_battle(message: Message, uid1, uid2):
 
     is_bot = False
     if uid2:
-        team2 = await fetch_team(uid2)
+        team2, team_name2 = await fetch_team(uid2)
         if not team2:
             # Fallback to bot if opponent player has no team
             is_bot = True 
@@ -639,7 +637,6 @@ async def run_battle(message: Message, uid1, uid2):
                 name2 = chat.first_name if chat.first_name else chat.full_name
             except Exception:
                 name2 = f"Игрок {uid2}"
-            team_name2 = await fetch_team(uid2)
             power2 = calculate_power(team2)
     else:
         is_bot = True
