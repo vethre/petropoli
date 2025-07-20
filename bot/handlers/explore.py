@@ -69,17 +69,17 @@ async def recalculate_energy(user_id: int):
     return new_energy
 
 async def check_and_level_up_pet(bot_instance, user_id, pet_id):
-    pet = await fetch_one("SELECT id, name, level, xp, xp_needed, stats FROM pets WHERE id = $1 AND user_id = $2", {"id": pet_id, "user_id": user_id})
-    if pet and pet['xp'] >= pet['xp_needed']:
+    pet_record = await fetch_one("SELECT id, name, level, xp, xp_needed, stats FROM pets WHERE id = $1 AND user_id = $2", {"id": pet_id, "user_id": user_id})
+    
+    if pet_record:
+        pet = dict(pet_record)
+        
         level_up_count = 0
         while pet['xp'] >= pet['xp_needed']:
             pet['level'] += 1
             pet['xp'] -= pet['xp_needed']
-            pet['xp_needed'] = int(pet['xp_needed'] * 1.5) # Example: XP needed increases by 50%
+            pet['xp_needed'] = int(pet['xp_needed'] * 1.5) 
             
-            # Stat increase on level up
-            # This is a basic example. You might want a more sophisticated system.
-            # For simplicity, we'll increment stats based on their current values.
             if isinstance(pet['stats'], str):
                 pet_stats = json.loads(pet['stats'])
             else:
@@ -89,16 +89,18 @@ async def check_and_level_up_pet(bot_instance, user_id, pet_id):
             pet_stats['def'] += random.randint(1, 3)
             pet_stats['hp'] += random.randint(3, 7)
             
+            # Update the 'stats' key in the mutable 'pet' dictionary
+            pet['stats'] = json.dumps(pet_stats) # Store back as JSON string for DB
+
             await execute_query(
                 "UPDATE pets SET level = $1, xp = $2, xp_needed = $3, stats = $4 WHERE id = $5", 
                 {"level": pet['level'], "xp": pet['xp'], "xp_needed": pet['xp_needed'], 
-                 "stats": json.dumps(pet_stats), "id": pet_id}
+                 "stats": pet['stats'], "id": pet_id}
             )
             level_up_count += 1
 
         if level_up_count > 0:
             try:
-                # Re-fetch pet data to get latest stats for message
                 updated_pet = await fetch_one("SELECT name, level, stats FROM pets WHERE id = $1 AND user_id = $2", {"id": pet_id, "user_id": user_id})
                 if updated_pet:
                     user_chat_info = await bot_instance.get_chat(user_id)
