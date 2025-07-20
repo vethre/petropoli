@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -196,8 +196,8 @@ async def select_dungeon_callback(callback: CallbackQuery, state: FSMContext):
     builder.adjust(2) # Две кнопки в ряд
 
     # Добавляем кнопки "Начать поход" и "Отмена"
-    builder.row(InlineKeyboardBuilder().button(text="Начать поход", callback_data="start_dungeon").as_markup())
-    builder.row(InlineKeyboardBuilder().button(text="Отмена", callback_data="cancel_dungeon").as_markup())
+    builder.row(InlineKeyboardButton(text="Начать поход", callback_data="start_dungeon"))
+    builder.row(InlineKeyboardButton(text="Отмена", callback_data="cancel_dungeon"))
 
     pet_list_text = "\n".join([f"ID {pet['id']} — {pet['name']} ({pet['rarity']}, Ур. {pet['level']})" for pet in user_pets_db])
 
