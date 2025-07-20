@@ -171,13 +171,16 @@ async def select_dungeon_callback(callback: CallbackQuery, state: FSMContext):
     # Сохраняем выбранный данж в FSM контексте
     await state.update_data(selected_dungeon_key=dungeon_key)
 
-    user_pets_db = await fetch_all("SELECT id, name, level, rarity FROM pets WHERE user_id = $1 ORDER BY level DESC, rarity DESC", {"uid": uid})
+    user_pets_db_records = await fetch_all("SELECT id, name, level, rarity FROM pets WHERE user_id = $1 ORDER BY level DESC, rarity DESC", {"uid": uid})
     
-    if not user_pets_db:
+    if not user_pets_db_records:
         await callback.message.edit_text("У тебя нет питомцев для прохождения подземелий. Используй /buy_egg и /hatch.")
         await state.clear()
         await callback.answer()
         return
+    
+    # ИЗМЕНЕНИЕ ЗДЕСЬ: Преобразуем список asyncpg.Record в список dict
+    user_pets_db = [dict(pet_record) for pet_record in user_pets_db_records]
     
     # Формируем кнопки для выбора питомцев
     builder = InlineKeyboardBuilder()
@@ -278,9 +281,13 @@ async def start_dungeon_callback(callback: CallbackQuery, state: FSMContext):
     # Получаем полную информацию о выбранных питомцах
     selected_pets_data = []
     for pet_id in selected_pets_ids:
-        pet = await fetch_one("SELECT id, name, level, stats, class, rarity FROM pets WHERE id = $1 AND user_id = $2", {"id": pet_id, "user_id": uid})
-        if pet:
-            pet['stats'] = json.loads(pet['stats']) # Десериализуем статы
+        # ИЗМЕНЕНИЕ ЗДЕСЬ: Преобразуем asyncpg.Record в dict
+        pet_record = await fetch_one("SELECT id, name, level, stats, class, rarity FROM pets WHERE id = $1 AND user_id = $2", {"id": pet_id, "user_id": uid})
+        
+        if pet_record:
+            pet = dict(pet_record) # <--- ВОТ ЭТО ИЗМЕНЕНИЕ
+            pet['stats'] = json.loads(pet['stats']) # Теперь это сработает
+            pet['current_hp'] = pet['stats']['hp'] 
             selected_pets_data.append(pet)
     
     if len(selected_pets_data) < dungeon_info['min_pets_required']:
