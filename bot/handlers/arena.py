@@ -477,6 +477,7 @@ async def check_and_level_up_pet(bot_instance, uid: int, pet_id: int): # Add bot
             parse_mode="HTML"
         )
     return leveled_up
+
 async def fetch_team(uid):
     team_data = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
     if not team_data:
@@ -587,7 +588,7 @@ async def run_battle(message: Message, uid1, uid2):
     except Exception:
         name1 = f"Игрок {uid1}"
 
-    team_name1 = fetch_team(uid1)
+    team_name1 = await fetch_team(uid1)
     power1 = calculate_power(team1)
 
     fake_names = [
@@ -638,7 +639,7 @@ async def run_battle(message: Message, uid1, uid2):
                 name2 = chat.first_name if chat.first_name else chat.full_name
             except Exception:
                 name2 = f"Игрок {uid2}"
-            team_name2 = fetch_team(uid2)
+            team_name2 = await fetch_team(uid2)
             power2 = calculate_power(team2)
     else:
         is_bot = True
