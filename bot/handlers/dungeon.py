@@ -14,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from bot.utils.pet_generator import EGG_TYPES
 from db.db import fetch_one, fetch_all, execute_query
-from bot.handlers.pets import create_pet_and_save # Импортируем функцию для создания питомца
+from bot.handlers.eggs import create_pet_and_save # Импортируем функцию для создания питомца
 from bot.handlers.explore import MAX_ENERGY, recalculate_energy, update_user_energy, simulate_battle # Импортируем функции для энергии и боя
 
 router = Router()
