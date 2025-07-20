@@ -5,7 +5,7 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from config import BOT_TOKEN, DB_URL
 from db.db import init_db
-from bot.handlers import start, eggs, pets, economy, dev, merge, arena, trade, sell
+from bot.handlers import start, eggs, pets, economy, dev, merge, arena, trade, sell, explore
 
 async def main():
     await init_db()
@@ -25,7 +25,8 @@ async def main():
         merge.router,
         arena.router,
         trade.router,
-        sell.router
+        sell.router,
+        explore.router
     )
 
     await dp.start_polling(bot)
