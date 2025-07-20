@@ -237,8 +237,8 @@ async def toggle_pet_selection_callback(callback: CallbackQuery, state: FSMConte
         builder.button(text=button_text, callback_data=f"toggle_pet_{pet['id']}")
     builder.adjust(2)
 
-    builder.row(InlineKeyboardBuilder().button(text="Начать поход", callback_data="start_dungeon").as_markup())
-    builder.row(InlineKeyboardBuilder().button(text="Отмена", callback_data="cancel_dungeon").as_markup())
+    builder.row(InlineKeyboardButton(text="Начать поход", callback_data="start_dungeon"))
+    builder.row(InlineKeyboardButton(text="Отмена", callback_data="cancel_dungeon"))
 
     pet_list_text = "\n".join([f"ID {pet['id']} — {pet['name']} ({pet['rarity']}, Ур. {pet['level']})" for pet in user_pets_db])
 
