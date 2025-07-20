@@ -52,7 +52,7 @@ async def create_pet_and_save(user_id: int, egg_type: str) -> dict:
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING id, name, class, rarity, level;
     """
-    result = await execute_query(query, new_pet_data)
+    result = await fetch_one(query, new_pet_data)
     
     if result:
         # Assuming result contains the returned columns from RETURNING
