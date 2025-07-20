@@ -17,13 +17,13 @@ ARENA_JOIN_COST = 20
 ARENA_MAX_ENERGY = 6
 ENERGY_RECHARGE_TIME_MINUTES = 30 # 1 energy recharges every 30 minutes
 
-BASE_XP_WIN = 100
-BASE_XP_LOSS = 30
+BASE_XP_WIN = 90
+BASE_XP_LOSS = 35
 BASE_XP_DRAW = 60
 
-BASE_COINS_WIN = 50
+BASE_COINS_WIN = 80
 BASE_COINS_LOSS = 10
-BASE_COINS_DRAW = 25
+BASE_COINS_DRAW = 50
 
 # --- XP to Level Mapping (Example, adjust as needed) ---
 # This can be a simple linear progression, or more complex.

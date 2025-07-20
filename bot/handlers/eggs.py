@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from bot.handlers.start import check_quest_progress, check_zone_unlocks
 from db.db import fetch_one, execute_query
-from bot.utils.pet_generator import RARITY_STATS_RANGE, roll_pet
+from bot.utils.pet_generator import RARITY_STATS_RANGE, RARITY_TOTAL_STAT_MULTIPLIER, roll_pet
 import json
 from datetime import datetime
 
@@ -44,26 +44,65 @@ async def buy_egg_cmd(message: Message):
     await message.answer("🥚 Ты купил обычное яйцо!\nНапиши /hatch, чтобы его вылупить.")
 
 def generate_stats_for_class(pclass: str, rarity: str) -> dict:
-    min_stat, max_stat = RARITY_STATS_RANGE[rarity]
-    total_points = random.randint(min_stat * 3, max_stat * 3)
+    min_base_stat, max_base_stat = RARITY_STATS_RANGE[rarity]
+    base_total_points = (min_base_stat + max_base_stat) / 2 * 3 
+    total_points = int(base_total_points * RARITY_TOTAL_STAT_MULTIPLIER[rarity])
 
+    total_points = random.randint(max(total_points - 10, min_base_stat * 3), total_points + 10)
+    
+    min_per_stat = int(min_base_stat * 0.5)
+    min_per_stat = max(5, min_per_stat) 
+
+    # Distribution based on class
     if pclass == "Дамаг-диллер":
-        atk = random.randint(max_stat, max_stat + 10)
-        hp = random.randint(min_stat, max_stat)
+        atk_weight = random.uniform(0.45, 0.55)
+        hp_weight = random.uniform(0.25, 0.35)
+        def_weight = 1.0 - atk_weight - hp_weight
+        
+        atk = int(total_points * atk_weight)
+        hp = int(total_points * hp_weight)
         defense = total_points - atk - hp
-    elif pclass == "Саппорт":
-        defense = random.randint(max_stat, max_stat + 10)
-        hp = random.randint(min_stat, max_stat)
-        atk = total_points - defense - hp
-    elif pclass == "Танк":
-        hp = random.randint(max_stat, max_stat + 10)
-        defense = random.randint(min_stat, max_stat)
-        atk = total_points - hp - defense
-    else:
-        parts = sorted([random.randint(min_stat, max_stat) for _ in range(3)], reverse=True)
-        atk, defense, hp = parts
 
-    return {"atk": max(0, atk), "def": max(0, defense), "hp": max(0, hp)}
+    elif pclass == "Саппорт":
+        def_weight = random.uniform(0.45, 0.55)
+        hp_weight = random.uniform(0.25, 0.35)
+        atk_weight = 1.0 - def_weight - hp_weight
+
+        defense = int(total_points * def_weight)
+        hp = int(total_points * hp_weight)
+        atk = total_points - defense - hp
+
+    elif pclass == "Танк":
+        # Prioritize HP, then Defense, then Attack
+        hp_weight = random.uniform(0.45, 0.55)
+        def_weight = random.uniform(0.25, 0.35)
+        atk_weight = 1.0 - hp_weight - def_weight
+
+        hp = int(total_points * hp_weight)
+        defense = int(total_points * def_weight)
+        atk = total_points - hp - defense
+
+    else:
+        remaining_points = total_points - (min_per_stat * 3)
+        
+        remaining_points = max(0, remaining_points) 
+
+        p1 = random.randint(0, remaining_points)
+        p2 = random.randint(0, remaining_points - p1)
+        p3 = remaining_points - p1 - p2
+
+        parts = [p1, p2, p3]
+        random.shuffle(parts)
+        
+        atk = min_per_stat + parts[0]
+        defense = min_per_stat + parts[1]
+        hp = min_per_stat + parts[2]
+
+    atk = max(min_per_stat, atk) 
+    defense = max(min_per_stat, defense)
+    hp = max(min_per_stat, hp)
+
+    return {"atk": atk, "def": defense, "hp": hp}
 
 @router.message(Command("hatch"))
 async def hatch_egg_cmd(message: Message):

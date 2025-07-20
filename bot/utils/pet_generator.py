@@ -109,6 +109,18 @@ RARITY_STATS_RANGE = {
     "Абсолютная":(85, 120),
 }
 
+RARITY_TOTAL_STAT_MULTIPLIER = {
+    "Обычная": 1.0,
+    "Необычная": 1.2,
+    "Редкая": 1.4,
+    "Очень Редкая": 1.6,
+    "Эпическая": 1.8,
+    "Легендарная": 2.0,
+    "Мифическая": 2.2,
+    "Древняя": 2.5,
+    "Божественная": 2.8,
+    "Абсолютная": 3.5, # Absolute rarity gets a significant boost
+}
 
 def roll_pet():
     rarities = [r[0] for r in RARITY_CHANCES]
