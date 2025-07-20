@@ -134,7 +134,7 @@ async def daily_reward_cmd(message: Message):
     if user_pets_records:
         random_pet = random.choice(user_pets_records)
         xp_reward = random.randint(DAILY_XP_RANGE[0], DAILY_XP_RANGE[1])
-        await update_pet_stats_and_xp(random_pet['id'], xp_gain=xp_reward)
+        await update_pet_stats_and_xp(message.bot, uid, random_pet['id'], xp_gain=xp_reward)
         xp_reward_text = f", а твой питомец <b>{random_pet['name']}</b> получил <b>{xp_reward} XP</b>"
     else:
         xp_reward_text = ", но у тебя нет питомцев для получения XP"
