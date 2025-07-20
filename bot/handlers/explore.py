@@ -2,7 +2,7 @@
 import asyncio
 import random
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router, F
 from aiogram.filters import Command, CommandObject
@@ -42,11 +42,11 @@ async def get_user_energy(user_id: int) -> dict:
     user = await fetch_one("SELECT energy, last_energy_update FROM users WHERE user_id = $1", {"uid": user_id})
     if user:
         return {"energy": user['energy'], "last_energy_update": user['last_energy_update']}
-    return {"energy": 0, "last_energy_update": datetime.utcnow()} 
+    return {"energy": 0, "last_energy_update": datetime.now(timezone.utc)} 
 
 async def update_user_energy(user_id: int, new_energy: int, update_time: datetime = None):
     if update_time is None:
-        update_time = datetime.utcnow()
+        update_time = datetime.now(timezone.utc)
     await execute_query("UPDATE users SET energy = $1, last_energy_update = $2 WHERE user_id = $3", 
                         {"energy": new_energy, "update_time": update_time, "uid": user_id})
 
@@ -55,7 +55,7 @@ async def recalculate_energy(user_id: int):
     current_energy = energy_data['energy']
     last_update = energy_data['last_energy_update']
     
-    time_since_last_update = datetime.utcnow() - last_update
+    time_since_last_update = datetime.now(timezone.utc) - last_update
     
     hours_passed = time_since_last_update.total_seconds() / 3600 
     
@@ -224,8 +224,8 @@ async def explore_cmd(message: Message, command: CommandObject):
     last_explore_time_str = user.get('last_explore_time')
     last_explore_time = datetime.fromisoformat(last_explore_time_str) if last_explore_time_str else datetime.min
     
-    if datetime.utcnow() - last_explore_time < EXPLORE_COOLDOWN:
-        remaining_time = EXPLORE_COOLDOWN - (datetime.utcnow() - last_explore_time)
+    if datetime.now(timezone.utc) - last_explore_time < EXPLORE_COOLDOWN:
+        remaining_time = EXPLORE_COOLDOWN - (datetime.now(timezone.utc) - last_explore_time)
         await message.answer(
             f"⏳ Ты уже недавно исследовал эти места. Подожди {str(remaining_time).split('.')[0]} перед следующим приключением."
         )
