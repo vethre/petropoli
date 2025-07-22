@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from db.db import fetch_one, fetch_all, execute_query # Assuming these are async functions
 import json
 import random
@@ -24,6 +24,8 @@ BASE_XP_DRAW = 60
 BASE_COINS_WIN = 80
 BASE_COINS_LOSS = 10
 BASE_COINS_DRAW = 50
+
+MAX_TEAM_PETS = 5
 
 # --- XP to Level Mapping (Example, adjust as needed) ---
 # This can be a simple linear progression, or more complex.
@@ -105,77 +107,80 @@ async def check_and_recharge_energy(uid: int):
 
 # ——— /team — показ або встановлення команди (No changes needed here unless you want to show energy info)
 @router.message(Command("team"))
-async def team_command_handler(message: Message):
+async def team_command_handler(message: Message, command: CommandObject): # Используем CommandObject
     uid = message.from_user.id
-    args = message.text.strip().split()
-    command_type = args[1].lower() if len(args) > 1 else ""
-
-    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
+    
+    # Проверка регистрации пользователя
+    user = await fetch_one("SELECT user_id FROM users WHERE user_id = $1", {"user_id": uid})
     if not user:
         await message.answer("Ты ещё не зарегистрирован. Напиши /start.")
         return
 
-    all_pets = await fetch_all("SELECT * FROM pets WHERE user_id = $1", {"uid": uid})
-    pet_data_by_id = {p["id"]: p for p in all_pets}
+    # Получаем все питомцы пользователя один раз для кэширования
+    all_user_pets = await fetch_all("SELECT id, name, rarity, class, level, stats FROM pets WHERE user_id = $1", {"user_id": uid})
+    pet_data_by_id = {p["id"]: p for p in all_user_pets}
 
+    # Получаем текущую арена-команду из arena_team
+    arena_team_record = await fetch_one("SELECT pet_ids, team_name FROM arena_team WHERE user_id = $1", {"user_id": uid})
+    
+    current_team_ids = json.loads(arena_team_record['pet_ids']) if arena_team_record and arena_team_record['pet_ids'] else []
+    team_name = arena_team_record['team_name'] if arena_team_record and arena_team_record['team_name'] else "Без названия"
+
+    # Разбираем аргументы команды
+    args = command.args.split() if command.args else []
+    
     # --- /team name "Team Name" ---
-    if command_type == "name":
-        if len(args) < 3:
-            await message.answer("Используй: <code>/team name \"Название твоей команды\"</code> (обязательно в кавычках).")
-            return
-        
-        # Join remaining arguments to handle multi-word names in quotes
-        name_parts = message.text.strip().split(" ", 2) # Split by first two spaces
-        if len(name_parts) < 3:
-            await message.answer("Укажи название команды в кавычках. Пример: <code>/team name \"Крутая команда\"</code>")
+    if args and args[0].lower() == "name":
+        # Используем command.args, чтобы корректно обработать кавычки
+        full_command_text = message.text.strip()
+        name_prefix = "/team name "
+        if not full_command_text.startswith(name_prefix):
+            await message.answer("Используй: <code>/team name \"Название твоей команды\"</code> (обязательно в кавычках).", parse_mode="HTML")
             return
 
-        team_name_raw = name_parts[2].strip()
+        team_name_raw = full_command_text[len(name_prefix):].strip()
         if not (team_name_raw.startswith('"') and team_name_raw.endswith('"')):
-            await message.answer("Название команды должно быть в кавычках. Пример: <code>/team name \"Крутая команда\"</code>")
+            await message.answer("Название команды должно быть в кавычках. Пример: <code>/team name \"Крутая команда\"</code>", parse_mode="HTML")
             return
         
-        team_name = team_name_raw[1:-1].strip() # Remove quotes
+        new_team_name = team_name_raw[1:-1].strip() # Remove quotes
 
-        if not team_name:
+        if not new_team_name:
             await message.answer("Название команды не может быть пустым.")
             return
 
-        if len(team_name) > 50: # Example length limit
+        if len(new_team_name) > 50: # Example length limit
             await message.answer("Название команды слишком длинное (макс. 50 символов).")
             return
 
-        existing_team_record = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
-        if existing_team_record:
+        if arena_team_record:
             await execute_query("UPDATE arena_team SET team_name = $1 WHERE user_id = $2",
-                                {"team_name": team_name, "uid": uid})
+                                {"team_name": new_team_name, "user_id": uid})
         else:
             await execute_query("INSERT INTO arena_team (user_id, pet_ids, team_name) VALUES ($1, $2, $3)",
-                                {"user_id": uid, "pet_ids": json.dumps([]), "team_name": team_name})
+                                {"user_id": uid, "pet_ids": json.dumps([]), "team_name": new_team_name})
 
-        await message.answer(f"✅ Твоя команда теперь называется: <b>{team_name}</b>", parse_mode="HTML")
+        await message.answer(f"✅ Твоя команда теперь называется: <b>{new_team_name}</b>", parse_mode="HTML")
         return
 
     # --- /team add ID ---
-    elif command_type == "add":
-        if len(args) < 3:
-            await message.answer("Используй: <code>/team add [ID питомца]</code>")
+    elif args and args[0].lower() == "add":
+        if len(args) < 2:
+            await message.answer("Используй: <code>/team add &lt;ID питомца&gt;</code>", parse_mode="HTML")
             return
         
         try:
-            pet_to_add_id = int(args[2])
+            pet_to_add_id = int(args[1])
         except ValueError:
-            await message.answer("ID питомца должен быть числом.")
+            await message.answer("ID питомца должен быть числом.", parse_mode="HTML")
             return
 
         if pet_to_add_id not in pet_data_by_id:
             await message.answer("Питомец с таким ID не найден или не принадлежит тебе.")
             return
 
-        current_team_ids = json.loads(user.get("active_arena_team", "[]"))
-        
-        if len(current_team_ids) >= 5: # Max pets in team
-            await message.answer("В команде уже максимум питомцев (5). Удалите кого-нибудь сначала, используя <code>/team del [ID]</code>.")
+        if len(current_team_ids) >= MAX_TEAM_PETS:
+            await message.answer(f"В команде уже максимум питомцев ({MAX_TEAM_PETS}). Удалите кого-нибудь сначала, используя <code>/team del &lt;ID&gt;</code>.", parse_mode="HTML")
             return
         
         if pet_to_add_id in current_team_ids:
@@ -184,143 +189,125 @@ async def team_command_handler(message: Message):
         
         current_team_ids.append(pet_to_add_id)
         
-        await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
-            "active_arena_team": json.dumps(current_team_ids),
-            "uid": uid,
-        })
-        existing_team_record = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
-        if existing_team_record:
+        # Обновляем или вставляем запись в arena_team
+        if arena_team_record:
             await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
                 "pet_ids": json.dumps(current_team_ids),
-                "uid": uid
+                "user_id": uid
             })
         else:
-            await execute_query("INSERT INTO arena_team (user_id, pet_ids) VALUES ($1, $2)",
-                                {"user_id": uid, "pet_ids": json.dumps(current_team_ids)})
-
-
+            await execute_query("INSERT INTO arena_team (user_id, pet_ids, team_name) VALUES ($1, $2, $3)",
+                                {"user_id": uid, "pet_ids": json.dumps(current_team_ids), "team_name": team_name}) # Используем team_name по умолчанию или из user_record
+                                
         await message.answer(f"✅ Питомец ID <code>{pet_to_add_id}</code> добавлен в твою команду. Текущая команда: {', '.join(map(str, current_team_ids))}", parse_mode="HTML")
         return
 
     # --- /team del ID ---
-    elif command_type == "del":
-        if len(args) < 3:
-            await message.answer("Используй: <code>/team del [ID питомца]</code>")
+    elif args and args[0].lower() == "del":
+        if len(args) < 2:
+            await message.answer("Используй: <code>/team del &lt;ID питомца&gt;</code>", parse_mode="HTML")
             return
         
         try:
-            pet_to_del_id = int(args[2])
+            pet_to_del_id = int(args[1])
         except ValueError:
-            await message.answer("ID питомца должен быть числом.")
+            await message.answer("ID питомца должен быть числом.", parse_mode="HTML")
             return
 
-        current_team_ids = json.loads(user.get("active_arena_team", "[]"))
-        
         if pet_to_del_id not in current_team_ids:
             await message.answer("Этот питомец не в твоей команде.")
             return
         
         current_team_ids.remove(pet_to_del_id)
         
-        await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
-            "active_arena_team": json.dumps(current_team_ids),
-            "uid": uid,
-        })
-        # Update arena_team table as well
+        # Обновляем запись в arena_team
         await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
             "pet_ids": json.dumps(current_team_ids),
-            "uid": uid
+            "user_id": uid
         })
 
         await message.answer(f"✅ Питомец ID <code>{pet_to_del_id}</code> удален из твоей команды. Текущая команда: {', '.join(map(str, current_team_ids))}", parse_mode="HTML")
         return
 
-    else: 
-        current_team_ids = json.loads(user.get("active_arena_team", "[]"))
-        
-        # Fetch team name
-        team_record = await fetch_one("SELECT team_name FROM arena_team WHERE user_id = $1", {"uid": uid})
-        team_name = team_record.get("team_name", "Без названия") if team_record else "Без названия"
+    # --- /team ID1 ID2 ID3 ... (установка всей команды) ---
+    elif args and all(arg.isdigit() for arg in args): # Если все аргументы - числа
+        new_team_ids = []
+        try:
+            new_team_ids = list(map(int, args))
+        except ValueError:
+            # Не должно произойти, так как уже проверили isdigit, но на всякий случай
+            await message.answer("⚠ Все ID должны быть числами.")
+            return
 
+        if len(new_team_ids) > MAX_TEAM_PETS:
+            await message.answer(f"⚠ Максимум {MAX_TEAM_PETS} питомцев в арена-команде.")
+            return
+
+        # Проверка, что все ID принадлежат пользователю и не повторяются
+        valid_team = True
+        for pet_id in new_team_ids:
+            if pet_id not in pet_data_by_id:
+                await message.answer(f"⚠ Питомец с ID <code>{pet_id}</code> не найден или не принадлежит тебе.", parse_mode="HTML")
+                valid_team = False
+                break
+        if not valid_team:
+            return
+        
+        if len(new_team_ids) != len(set(new_team_ids)):
+            await message.answer("⚠ В команде не может быть повторяющихся питомцев.")
+            return
+
+        # Обновляем или вставляем запись в arena_team
+        if arena_team_record:
+            await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
+                "pet_ids": json.dumps(new_team_ids),
+                "user_id": uid
+            })
+        else:
+            await execute_query("INSERT INTO arena_team (user_id, pet_ids, team_name) VALUES ($1, $2, $3)",
+                                {"user_id": uid, "pet_ids": json.dumps(new_team_ids), "team_name": team_name})
+
+        await message.answer(f"✅ Твоя арена-команда обновлена!\nПитомцы: {', '.join(map(str, new_team_ids))}", parse_mode="HTML")
+        return
+
+    # --- /team (просмотр команды) ---
+    else: 
+        # Если аргументов нет или они не распознаны как подкоманда/список ID
         if not current_team_ids:
-            await message.answer(f"⚔ У тебя пока не выбрана команда для арены (Команда: <b>{team_name}</b>).\nИспользуй <code>/team add id1</code> или <code>/team id1 id2 ...</code> (старый метод).\nИспользуй <code>/team name \"Твое название\"</code>", parse_mode="HTML")
+            await message.answer(f"⚔ У тебя пока не выбрана команда для арены (Команда: <b>{team_name}</b>).\n"
+                                 f"Используй <code>/team add &lt;ID питомца&gt;</code>, чтобы добавить одного питомца.\n"
+                                 f"Или <code>/team &lt;id1&gt; &lt;id2&gt; ...</code>, чтобы установить всю команду.\n"
+                                 f"Задать название: <code>/team name \"Твое название\"</code>", parse_mode="HTML")
             return
         
         team_for_display = []
         for pet_id in current_team_ids:
             pet_data = pet_data_by_id.get(pet_id) 
             if pet_data:
+                # Убедимся, что stats это dict, а не строка
                 pet_data_copy = dict(pet_data) 
-                pet_data_copy["stats"] = pet_data_copy["stats"] if isinstance(pet_data_copy["stats"], dict) else json.loads(pet_data_copy["stats"])
+                if isinstance(pet_data_copy["stats"], str):
+                    pet_data_copy["stats"] = json.loads(pet_data_copy["stats"])
                 team_for_display.append(pet_data_copy)
         
         total_team_power = calculate_power(team_for_display)
 
-        text = f"🏟️ <b>Твоя арена-команда: {team_name}</b>\n\n" # Display team name
+        text = f"🏟️ <b>Твоя арена-команда: {team_name}</b>\n\n"
         text += f"📊 Общая сила команды: <b>{total_team_power}</b> 💪\n\n"
 
-        for idx, pet in enumerate(team_for_display, 1): 
-            stats = pet["stats"]
-            text += (
-                f"🐾 <b>#{idx}</b> {pet['name']} ({pet['rarity']} | {pet['class']} | Ур. {pet.get('level', 1)})\n"
-                f"⚔ Атака: {stats['atk']} | 🛡 Защита: {stats['def']} | ❤️ Здоровье: {stats['hp']}\n"
-                f"🆔 ID: <code>{pet['id']}</code>\n\n"
-            )
+        if not team_for_display: # Если питомцы в team_ids есть, но их не нашли в all_user_pets
+            text += "Один или несколько питомцев в твоей команде не найдены в твоем инвентаре. Возможно, они были удалены."
+        else:
+            for idx, pet in enumerate(team_for_display, 1): 
+                stats = pet["stats"]
+                text += (
+                    f"🐾 <b>#{idx}</b> {pet['name']} ({pet['rarity']} | {pet['class']} | Ур. {pet.get('level', 1)})\n"
+                    f"⚔ Атака: {stats['atk']} | 🛡 Защита: {stats['def']} | ❤️ Здоровье: {stats['hp']}\n"
+                    f"🆔 ID: <code>{pet['id']}</code>\n\n"
+                )
+        text += "Используй <code>/team add &lt;ID&gt;</code>, <code>/team del &lt;ID&gt;</code>, <code>/team name \"Название\"</code> "
+        text += "или <code>/team &lt;id1&gt; &lt;id2&gt; ...</code> для управления командой."
         await message.answer(text, parse_mode="HTML")
-
-async def set_multiple_pets_team(message: Message):
-    uid = message.from_user.id
-    args = message.text.strip().split()[1:]
-
-    if not args or args[0].lower() in ["name", "add", "del"]:
-        return 
-
-    # This is the old "set multiple pets" logic
-    user = await fetch_one("SELECT * FROM users WHERE user_id = $1", {"uid": uid})
-    if not user:
-        await message.answer("Ты ещё не зарегистрирован. Напиши /start.")
-        return
-
-    all_pets = await fetch_all("SELECT * FROM pets WHERE user_id = $1", {"uid": uid})
-    pet_data_by_id = {p["id"]: p for p in all_pets}
-
-    try:
-        new_team = list(map(int, args))
-    except ValueError:
-        await message.answer("⚠ Все ID должны быть числами.")
-        return
-
-    if len(new_team) > 5:
-        await message.answer("⚠ Максимум 5 питомцев в арене.")
-        return
-
-    if any(pet_id not in pet_data_by_id for pet_id in new_team):
-        await message.answer("⚠ Один или несколько ID не принадлежат тебе.")
-        return
-    
-    if len(new_team) != len(set(new_team)):
-        await message.answer("⚠ В команде не может быть повторяющихся питомцев.")
-        return
-
-    await execute_query("UPDATE users SET active_arena_team = $1 WHERE user_id = $2", {
-        "active_arena_team": json.dumps(new_team),
-        "uid": uid,
-    })
-
-    existing_team = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
-    if existing_team:
-        await execute_query("UPDATE arena_team SET pet_ids = $1 WHERE user_id = $2", {
-            "pet_ids": json.dumps(new_team),
-            "uid": uid
-        })
-    else:
-        await execute_query(
-            "INSERT INTO arena_team (user_id, pet_ids) VALUES ($1, $2)",
-            {"user_id": uid, "pet_ids": json.dumps(new_team)}
-        )
-
-    await message.answer(f"✅ Твоя арена-команда обновлена!\nПитомцы: {', '.join(map(str, new_team))}", parse_mode="HTML")
-
 
 async def fetch_team(uid):
     team_data = await fetch_one("SELECT * FROM arena_team WHERE user_id = $1", {"uid": uid})
@@ -611,23 +598,25 @@ async def run_battle(message: Message, uid1, uid2):
     if uid2:
         team2, team_name2 = await fetch_team(uid2)
         if not team2:
-            # Fallback to bot if opponent player has no team
             is_bot = True 
             name2 = random.choice(fake_names)
             team_name2 = random.choice(BOT_TEAM_NAMES)
-            avg_pet_power = power1 / len(team1)
-            num_bot_pets = random.randint(max(1, len(team1) - 1), min(5, len(team1) + 1))
+            TARGET_BOT_POWER_RATIO_MIN = 0.8 # Бот будет иметь минимум 80% силы игрока
+            TARGET_BOT_POWER_RATIO_MAX = 1.0 # Бот будет иметь максимум 100% силы игрока
+            target_bot_power = int(power1 * random.uniform(TARGET_BOT_POWER_RATIO_MIN, TARGET_BOT_POWER_RATIO_MAX))
+            num_bot_pets = len(team1) 
+            avg_pet_target_power = target_bot_power / num_bot_pets
             team2 = []
             for _ in range(num_bot_pets):
-                base_atk = max(1, int(avg_pet_power * random.uniform(0.7, 1.3) / 3))
-                base_def = max(1, int(avg_pet_power * random.uniform(0.7, 1.3) / 3))
-                base_hp = max(1, int(avg_pet_power * random.uniform(0.7, 1.3) / 3))
+                base_atk = max(1, int(avg_pet_target_power * random.uniform(0.3, 0.4))) # Например, 30-40% от средней силы
+                base_def = max(1, int(avg_pet_target_power * random.uniform(0.3, 0.4)))
+                base_hp = max(1, int(avg_pet_target_power * random.uniform(0.4, 0.5))) # HP обычно больше
                 team2.append({
                     "name": random.choice(["Кот", "Пёс", "Лиса", "Бобр", "Дракон", "Волк", "Медведь", "Пантера", "Орел", "Змея"]),
                     "stats": {
-                        "atk": max(5, base_atk + random.randint(-2, 2)),
-                        "def": max(5, base_def + random.randint(-2, 2)),
-                        "hp": max(15, base_hp + random.randint(-5, 5))
+                        "atk": max(5, int(base_atk * random.uniform(0.9, 1.1))), # +/- 10% от базы
+                        "def": max(5, int(base_def * random.uniform(0.9, 1.1))),
+                        "hp": max(15, int(base_hp * random.uniform(0.9, 1.1)))
                     }
                 })
         else: 
@@ -638,28 +627,33 @@ async def run_battle(message: Message, uid1, uid2):
             except Exception:
                 name2 = f"Игрок {uid2}"
             power2 = calculate_power(team2)
-    else:
+    else: # Если uid2 == None, это всегда бой с ботом
         is_bot = True
         name2 = random.choice(fake_names)
         team_name2 = random.choice(BOT_TEAM_NAMES)
-        avg_pet_power = power1 / len(team1)
-        num_bot_pets = random.randint(max(1, len(team1) - 1), min(5, len(team1) + 1))
+        
+        # --- ИЗМЕНЕНИЯ ЗДЕСЬ (дублируем логику генерации бота) ---
+        TARGET_BOT_POWER_RATIO_MIN = 0.8
+        TARGET_BOT_POWER_RATIO_MAX = 1.0
+        
+        target_bot_power = int(power1 * random.uniform(TARGET_BOT_POWER_RATIO_MIN, TARGET_BOT_POWER_RATIO_MAX))
+        num_bot_pets = len(team1) 
+        avg_pet_target_power = target_bot_power / num_bot_pets
         
         team2 = []
         for _ in range(num_bot_pets):
-            base_atk = max(1, int(avg_pet_power * random.uniform(0.7, 1.3) / 3))
-            base_def = max(1, int(avg_pet_power * random.uniform(0.7, 1.3) / 3))
-            base_hp = max(1, int(avg_pet_power * random.uniform(0.7, 1.3) / 3))
-            
+            base_atk = max(1, int(avg_pet_target_power * random.uniform(0.3, 0.4)))
+            base_def = max(1, int(avg_pet_target_power * random.uniform(0.3, 0.4)))
+            base_hp = max(1, int(avg_pet_target_power * random.uniform(0.4, 0.5)))
             team2.append({
                 "name": random.choice(["Кот", "Пёс", "Лиса", "Бобр", "Дракон", "Волк", "Медведь", "Пантера", "Орел", "Змея"]),
                 "stats": {
-                    "atk": max(5, base_atk + random.randint(-2, 2)),
-                    "def": max(5, base_def + random.randint(-2, 2)),
-                    "hp": max(15, base_hp + random.randint(-5, 5))
+                    "atk": max(5, int(base_atk * random.uniform(0.9, 1.1))),
+                    "def": max(5, int(base_def * random.uniform(0.9, 1.1))),
+                    "hp": max(15, int(base_hp * random.uniform(0.9, 1.1)))
                 }
             })
-    power2 = calculate_power(team2) # Recalculate power for bot team if it was generated
+    power2 = calculate_power(team2)
 
     msg = await send_battle_intro(message, name1, team_name1, power1, name2, team_name2, power2)
 
