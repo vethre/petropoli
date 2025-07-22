@@ -16,7 +16,7 @@ from aiogram.exceptions import TelegramBadRequest # Импортируем дл�
 from bot.utils.pet_generator import EGG_TYPES
 from db.db import fetch_one, fetch_all, execute_query
 from bot.handlers.eggs import create_pet_and_save # Импортируем функцию для создания питомца
-from bot.handlers.explore import MAX_ENERGY, recalculate_energy, update_user_energy # Импортируем функции для энергии
+from bot.handlers.explore import MAX_ENERGY, recalculate_energy, update_user_energy_db # Импортируем функции для энергии
 from bot.utils.battle_system import simulate_battle_dungeon # <--- ИМПОРТ НОВОЙ ФУНКЦИИ
 
 router = Router()
@@ -468,7 +468,7 @@ async def start_dungeon_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     
-    await update_user_energy(uid, current_energy - dungeon_info['entry_cost_energy'])
+    await update_user_energy_db(uid, current_energy - dungeon_info['entry_cost_energy'])
 
     await state.update_data(
         current_dungeon_key=selected_dungeon_key,
