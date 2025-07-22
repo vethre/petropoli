@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 import asyncpg
 from config import DB_URL
@@ -29,58 +30,67 @@ async def execute_query(query: str, args: dict = None):
 async def get_user_quests(uid: int):
     return await fetch_all("SELECT * FROM quests WHERE user_id = $1", {"uid": uid})
 
-async def insert_quest(uid: int, name: str, description: str, zone: str, goal: int, reward_coins: int = 0, reward_egg: bool = False):
+async def insert_quest(user_id: int, quest_id: str, name: str, description: str, zone: str, goal: int, reward_coins: int, reward_egg_type: str = None):
     await execute_query(
-        "INSERT INTO quests (user_id, name, description, zone, goal, reward_coins, reward_egg) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        {"uid": uid, "name": name, "description": description, "zone": zone, "goal": goal, "reward_coins": reward_coins, "reward_egg": reward_egg}
+        "INSERT INTO quests (user_id, quest_id, name, description, progress, goal, reward_coins, reward_egg_type, completed, claimed, zone) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, FALSE, $9)",
+        {
+            "user_id": user_id,
+            "quest_id": quest_id,
+            "name": name,
+            "description": description,
+            "progress": 0, # Начинаем с 0
+            "goal": goal,
+            "reward_coins": reward_coins,
+            "reward_egg_type": reward_egg_type,
+            "zone": zone
+        }
     )
 
-async def update_quest_progress(uid: int, quest_name: str, increment: int = 1):
+async def update_quest_progress(uid: int, quest_id: str, increment: int = 1): # Изменено quest_name на quest_id
     await execute_query(
-        "UPDATE quests SET progress = progress + $1 WHERE user_id = $2 AND name = $3 AND completed = FALSE",
-        {"increment": increment, "uid": uid, "quest_name": quest_name}
+        "UPDATE quests SET progress = progress + $1 WHERE user_id = $2 AND quest_id = $3 AND completed = FALSE", # Использовать quest_id
+        {"increment": increment, "uid": uid, "quest_id": quest_id} # Использовать quest_id
     )
 
-async def complete_quest(uid: int, quest_name: str):
+async def complete_quest(uid: int, quest_id: str): # Изменено quest_name на quest_id
     await execute_query(
-        "UPDATE quests SET completed = TRUE WHERE user_id = $1 AND name = $2",
-        {"uid": uid, "quest_name": quest_name}
+        "UPDATE quests SET completed = TRUE WHERE user_id = $1 AND quest_id = $2", # Использовать quest_id
+        {"uid": uid, "quest_id": quest_id} # Использовать quest_id
     )
 
-async def claim_quest_reward(user_id: int, quest_id: int):
-    # Теперь мы ищем по ID квеста, а не по имени
-    quest = await fetch_one("SELECT * FROM quests WHERE user_id = $1 AND id = $2 AND completed = TRUE AND claimed = FALSE", {"user_id": user_id, "id": quest_id})
+# ИСПРАВЛЕННАЯ ФУНКЦИЯ claim_quest_reward
+async def claim_quest_reward(uid: int, quest_db_id: int): # Изменено user_id на uid для консистентности, и quest_id на quest_db_id для ясности
+    quest_record = await fetch_one("SELECT * FROM quests WHERE id = $1 AND user_id = $2", {"id": quest_db_id, "user_id": uid})
 
-    if not quest:
-        return False, "Квест не найден, не завершен или награда уже получена."
+    if not quest_record or not quest_record['completed'] or quest_record.get('claimed', False):
+        return False, "Квест не завершен или награда уже забрана."
 
-    # Process rewards
-    reward_coins = quest.get("reward_coins", 0)
-    reward_egg = quest.get("reward_egg", False)
+    # Мы больше не используем QUESTS_DEFINITIONS.get(quest_record['quest_id']) здесь
+    # Все данные о награде берутся из самой записи квеста в БД
+    reward_coins = quest_record.get('reward_coins', 0)
+    reward_egg_type = quest_record.get('reward_egg_type') # Теперь это тип яйца
 
-    # Update user's coins
+    # Обновляем монеты пользователя и total_coins_collected (если это не делается в другом месте)
     if reward_coins > 0:
-        await execute_query("UPDATE users SET coins = coins + $1 WHERE user_id = $2", {"coins_to_add": reward_coins, "user_id": user_id})
+        await execute_query("UPDATE users SET coins = coins + $1, total_coins_collected = total_coins_collected + $1 WHERE user_id = $2",
+                            {"coins": reward_coins, "uid": uid})
 
-    # Add egg if applicable
-    if reward_egg:
-        user = await fetch_one("SELECT eggs FROM users WHERE user_id = $1", {"user_id": user_id})
-        current_eggs = json.loads(user["eggs"] or "[]")
-        current_eggs.append({"type": "Лужайка", "rarity": "common"}) # Пример яйца, можешь настроить
-        await execute_query("UPDATE users SET eggs = $1 WHERE user_id = $2", {"eggs_json": json.dumps(current_eggs), "user_id": user_id})
+    # Добавляем яйцо в инвентарь пользователя (eggs JSONB)
+    if reward_egg_type:
+        user_data = await fetch_one("SELECT eggs FROM users WHERE user_id = $1", {"uid": uid})
+        eggs_list = json.loads(user_data.get('eggs', '[]') or '[]')
+        eggs_list.append({"type": reward_egg_type, "timestamp": datetime.now(timezone.utc).isoformat()}) # Используем datetime.now(timezone.utc)
+        await execute_query("UPDATE users SET eggs = $1 WHERE user_id = $2", {"eggs": json.dumps(eggs_list), "uid": uid})
+        # Если у вас есть счетчик eggs_collected, увеличьте его здесь:
+        await execute_query("UPDATE users SET eggs_collected = eggs_collected + 1 WHERE user_id = $1", {"uid": uid})
 
-    # Mark quest as claimed
-    await execute_query("UPDATE quests SET claimed = TRUE WHERE id = $1", {"id": quest_id})
+    await execute_query("UPDATE quests SET claimed = TRUE WHERE id = $1", {"id": quest_db_id})
 
-    reward_message = ""
+    msg = f"🎉 Награда за квест «{quest_record['name']}» получена!" # Используем имя из записи квеста
     if reward_coins > 0:
-        reward_message += f"💰 {reward_coins} петкойнов"
-    if reward_egg:
-        if reward_message: reward_message += ", "
-        reward_message += "🥚 1 яйцо"
+        msg += f"\n💰 Получено {reward_coins} петкойнов."
+    if reward_egg_type:
+        msg += f"\n🥚 Получено {reward_egg_type.capitalize()} яйцо."
 
-    final_message = f"Награда за квест «{quest['name']}» получена! {reward_message}"
-    if not reward_message:
-        final_message = f"Квест «{quest['name']}» завершен и отмечен как полученный."
-
-    return True, final_message
+    return True, msg

@@ -25,7 +25,9 @@ async def collect_cmd(message: Message):
         await message.answer("У тебя пока нет питомцев 😿\nКупи яйцо через /buy_egg и выведи кого-то!")
         return
     
-    buff_mult = await get_zone_buff(uid)
+    # buff_mult теперь будет словарем типа {'type': 'coin_rate', 'value': 5}
+    # или None, если баффа нет
+    buff_mult_data = await get_zone_buff(uid)
     
     now = datetime.now(timezone.utc)
     total_collected = 0
@@ -34,12 +36,34 @@ async def collect_cmd(message: Message):
     for pet in pets:
         last = pet["last_collected"]
         if last:
-            try:
+            # Ваша логика преобразования last в datetime object
+            if isinstance(last, str):
+                try:
+                    # Попытка разобрать с миллисекундами и зоной
+                    last = datetime.strptime(last, "%Y-%m-%dT%H:%M:%S.%f%z")
+                except ValueError:
+                    # Если без миллисекунд или другой формат, попробуйте другой
+                    last = datetime.fromisoformat(last)
                 last = last.astimezone(timezone.utc)
-            except Exception:
-                last = datetime.strptime(last, "%Y-%m-%dT%H:%M:%S.%f%z")
+            elif isinstance(last, datetime):
+                last = last.astimezone(timezone.utc) if last.tzinfo is None else last
+            else:
+                last = None # Если тип не строка и не datetime
+        
+        # Если last_collected не установлен или прошло достаточно времени
         if not last or (now - last) >= timedelta(minutes=COLLECT_COOLDOWN_MINUTES):
-            income = int(pet["coin_rate"] * buff_mult)
+            # --- ИСПРАВЛЕННАЯ ЛОГИКА ПРИМЕНЕНИЯ БАФФА ---
+            buff_value = 1 # По умолчанию множитель 1 (нет баффа)
+            if buff_mult_data and buff_mult_data.get('type') == 'coin_rate':
+                # Проверяем, что buff_mult_data - это словарь, и тип баффа - 'coin_rate'
+                # и что значение - число
+                if isinstance(buff_mult_data.get('value'), (int, float)):
+                    # buff_mult_data['value'] - это процентное значение (например, 5 для +5%)
+                    buff_value = 1 + (buff_mult_data['value'] / 100) # Преобразуем процент в множитель (например, 5% -> 1.05)
+
+            income = int(pet["coin_rate"] * buff_value)
+            # --- КОНЕЦ ИСПРАВЛЕННОЙ ЛОГИКИ ПРИМЕНЕНИЯ БАФФА ---
+
             total_collected += income
             updated_pets.append(pet["id"])
 
@@ -48,7 +72,7 @@ async def collect_cmd(message: Message):
         return
     
     await execute_query(
-        "UPDATE users SET coins = coins + $1 WHERE user_id = $2",
+        "UPDATE users SET coins = coins + $1, total_coins_collected = total_coins_collected + $1 WHERE user_id = $2", # Добавил total_coins_collected
         {"coins": total_collected, "uid": uid}
     )
 
