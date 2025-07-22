@@ -25,7 +25,7 @@ async def collect_cmd(message: Message):
         await message.answer("У тебя пока нет питомцев 😿\nКупи яйцо через /buy_egg и выведи кого-то!")
         return
     
-    buff_mult = await get_zone_buff(user)
+    buff_mult = await get_zone_buff(uid)
     
     now = datetime.now(timezone.utc)
     total_collected = 0

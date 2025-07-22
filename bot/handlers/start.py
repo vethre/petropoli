@@ -657,16 +657,30 @@ async def check_zone_unlocks(uid: int, message_obj: Message = None): # Renamed `
                     print(f"Error sending zone unlock message: {e}")
 
 # Get zone buff multiplier (unchanged, but now uses new zone columns)
-async def get_zone_buff(user_id: int) -> dict: # Changed to take user_id and return dict with type and value
-    user = await fetch_one("SELECT active_zone FROM users WHERE user_id = $1", {"uid": user_id})
-    if not user or not user.get('active_zone'):
-        return {"type": "none", "value": 0}
-    
-    zone = await fetch_one("SELECT buff_type, buff_value FROM zones WHERE name = $1", {"name": user['active_zone']})
-    
-    if zone and zone.get('buff_type') and zone.get('buff_type') != 'none':
-        return {"type": zone['buff_type'], "value": zone.get('buff_value', 0)}
-    return {"type": "none", "value": 0}
+async def get_zone_buff(user_id: int): # Принимаем user_id напрямую, а не объект user
+    user_record = await fetch_one("SELECT active_zone, active_zone_buff FROM users WHERE user_id = $1", {"uid": user_id})
+
+    if not user_record:
+        # Пользователь не найден, или нет данных о зоне
+        return None
+
+    # Преобразуем asyncpg.Record в изменяемый словарь
+    user = dict(user_record)
+
+    # Получаем данные текущей зоны пользователя
+    active_zone_name = user.get('active_zone')
+    if not active_zone_name:
+        return None # У пользователя нет активной зоны
+
+    zone_data = await fetch_one("SELECT buff_type, buff_value FROM zones WHERE name = $1", {"zone_name": active_zone_name})
+
+    if zone_data:
+        # Если у зоны есть баффы, возвращаем их
+        return {
+            'type': zone_data.get('buff_type'),
+            'value': zone_data.get('buff_value')
+        }
+    return None 
 
 # Unified function for zones
 async def show_zones(uid: int, source: Message | CallbackQuery):
