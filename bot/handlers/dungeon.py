@@ -34,8 +34,6 @@ BOSS_MULTIPLIER_DEF = 1.5 # Босс имеет в X раз больше DEF
 BOSS_MULTIPLIER_REWARD = 2.0 # Босс дает в X раз больше наград
 
 # --- ОПРЕДЕЛЕНИЯ МОНСТРОВ ---
-# Теперь монстры будут иметь БАЗОВЫЕ статы, которые будут масштабироваться
-# в зависимости от сложности подземелья.
 MONSTERS = {
     "лесной_волк": {
         "name_ru": "Лесной Волк",
@@ -201,7 +199,7 @@ async def dungeon_start_cmd(message: Message, state: FSMContext):
     sent_message = await message.answer(menu_text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await state.update_data(menu_message_id=sent_message.message_id) # Сохраняем ID сообщения для редактирования
     await state.set_state(DungeonState.choosing_dungeon) # Переходим в состояние выбора данжа
-    await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после отправки
+    # await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после отправки - можно убрать, так как следующее действие - коллбэк
 
 @router.callback_query(F.data.startswith("select_dungeon_"), StateFilter(DungeonState.choosing_dungeon))
 async def select_dungeon_callback(callback: CallbackQuery, state: FSMContext):
@@ -315,7 +313,7 @@ async def select_dungeon_callback(callback: CallbackQuery, state: FSMContext):
     
     await state.set_state(DungeonState.choosing_pets)
     await callback.answer()
-    await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после редактирования/отправки
+    # await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после редактирования/отправки - можно убрать
 
 @router.callback_query(F.data.startswith("toggle_pet_"), StateFilter(DungeonState.choosing_pets))
 async def toggle_pet_selection_callback(callback: CallbackQuery, state: FSMContext):
@@ -386,7 +384,7 @@ async def toggle_pet_selection_callback(callback: CallbackQuery, state: FSMConte
             parse_mode="HTML"
         )
     await callback.answer()
-    await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после редактирования/отправки
+    # await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после редактирования/отправки - можно убрать
 
 @router.callback_query(F.data == "start_dungeon", StateFilter(DungeonState.choosing_pets))
 async def start_dungeon_callback(callback: CallbackQuery, state: FSMContext):
@@ -394,7 +392,7 @@ async def start_dungeon_callback(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected_dungeon_key = data.get('selected_dungeon_key')
     selected_pets_ids = data.get('selected_pets_ids', [])
-    menu_message_id = data.get('menu_message_id')
+    menu_message_id = data.get('menu_message_id') # Получаем ID сообщения из FSM
 
     if not selected_dungeon_key:
         if menu_message_id:
@@ -470,34 +468,41 @@ async def start_dungeon_callback(callback: CallbackQuery, state: FSMContext):
     
     await update_user_energy_db(uid, current_energy - dungeon_info['entry_cost_energy'])
 
+    # Сохраняем ID сообщения, которое будем обновлять в процессе данжа
+    # Если menu_message_id существует, используем его, иначе отправляем новое
+    dungeon_status_message_id = menu_message_id
+    if not dungeon_status_message_id:
+        # Отправляем новое сообщение, если предыдущего не было (например, при прямом вызове без меню)
+        sent_message = await callback.message.answer(f"🗺️ Ваша команда отправляется в <b>{dungeon_info['name_ru']}</b>!\nПриготовьтесь к бою!", parse_mode="HTML")
+        dungeon_status_message_id = sent_message.message_id
+    else:
+        # Редактируем существующее сообщение
+        try:
+            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=menu_message_id,
+                                                text=f"🗺️ Ваша команда отправляется в <b>{dungeon_info['name_ru']}</b>!\nПриготовьтесь к бою!",
+                                                parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                # Если редактирование не удалось по другой причине, отправляем новое
+                sent_message = await callback.message.answer(f"🗺️ Ваша команда отправляется в <b>{dungeon_info['name_ru']}</b>!\nПриготовьтесь к бою!", parse_mode="HTML")
+                dungeon_status_message_id = sent_message.message_id
+
+
     await state.update_data(
         current_dungeon_key=selected_dungeon_key,
         current_pets_data=selected_pets_data,
         current_encounter_index=0,
         dungeon_total_xp = 0,
-        dungeon_total_coins = 0
+        dungeon_total_coins = 0,
+        dungeon_status_message_id=dungeon_status_message_id # Сохраняем ID сообщения для обновления
     )
     await state.set_state(DungeonState.in_dungeon_progress)
 
-    if menu_message_id:
-        try:
-            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=menu_message_id,
-                                                 text=f"🗺️ Ваша команда отправляется в <b>{dungeon_info['name_ru']}</b>!\n"
-                                                 f"Приготовьтесь к бою!",
-                                                 parse_mode="HTML")
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e):
-                await callback.message.answer(f"🗺️ Ваша команда отправляется в <b>{dungeon_info['name_ru']}</b>!\n"
-                                             f"Приготовьтесь к бою!",
-                                             parse_mode="HTML")
-    else:
-        await callback.message.answer(f"🗺️ Ваша команда отправляется в <b>{dungeon_info['name_ru']}</b>!\n"
-                                     f"Приготовьтесь к бою!",
-                                     parse_mode="HTML")
     await callback.answer()
     await asyncio.sleep(random.uniform(1.0, 2.0)) # Задержка перед началом симуляции
 
-    await simulate_dungeon_progress(callback.message, uid, state)
+    # Передаем message_id в функцию симуляции
+    await simulate_dungeon_progress(callback.message, uid, state, dungeon_status_message_id)
 
 
 @router.callback_query(F.data == "cancel_dungeon", StateFilter(DungeonState.choosing_pets))
@@ -515,11 +520,12 @@ async def cancel_dungeon_callback(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Выход из выбора подземелья.")
     await state.clear()
     await callback.answer()
-    await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после отмены
+    # await asyncio.sleep(random.uniform(0.5, 1.0)) # Задержка после отмены - можно убрать
 
 # --- Dungeon Simulation Logic ---
 
-async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMContext):
+# Добавляем dungeon_status_message_id как аргумент
+async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMContext, dungeon_status_message_id: int):
     data = await state.get_data()
     dungeon_key = data['current_dungeon_key']
     dungeon_info = DUNGEONS[dungeon_key]
@@ -532,14 +538,24 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
     if dungeon_info['boss_monster']:
         num_encounters_to_do += 1
 
+    current_output_text = "" # Буфер для текущего вывода
+
     for i in range(encounter_index, num_encounters_to_do):
         if not any(pet['current_hp'] > 0 for pet in pets_data):
-            await message.answer(
-                f"💀 Все ваши питомцы потеряли сознание. Поход окончен!\n"
+            current_output_text += (
+                f"\n\n💀 Все ваши питомцы потеряли сознание. Поход окончен!\n"
                 f"Вы заработали: {dungeon_total_xp} XP, {dungeon_total_coins} 💰.\n"
-                f"<b>Ваши питомцы нуждаются в лечении!</b> Используйте команду <code>/heal</code>.",
-                parse_mode="HTML"
+                f"<b>Ваши питомцы нуждаются в лечении!</b> Используйте команду <code>/heal</code>."
             )
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id, message_id=dungeon_status_message_id,
+                    text=current_output_text, parse_mode="HTML"
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    await message.answer(current_output_text, parse_mode="HTML") # Fallback
+            
             for pet_with_damage in pets_data:
                 await execute_query(
                     "UPDATE pets SET current_hp = $1 WHERE id = $2", 
@@ -581,28 +597,25 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
             
         current_monster_name = scaled_monster_info['name_ru']
 
-        await message.answer(f"⚡️ Ваша команда столкнулась с <b>{current_monster_name}</b> ({encounter_type})!", parse_mode="HTML")
-        await asyncio.sleep(random.uniform(1.5, 2.5)) # Пауза перед боем
+        # Начинаем формировать вывод для текущей стычки
+        current_output_text = f"⚡️ Ваша команда столкнулась с <b>{current_monster_name}</b> ({encounter_type})!\n"
+        current_output_text += "Началась битва!\n"
 
         # Симулируем бой, передавая масштабированные данные монстра
         battle_result = simulate_battle_dungeon(pets_data, scaled_monster_info)
         
         if battle_result.get('battle_log'):
-            # Разделяем лог на части, чтобы избежать слишком длинных сообщений
-            log_chunks = [battle_result['battle_log'][j:j + 10] for j in range(0, len(battle_result['battle_log']), 10)]
-            for chunk in log_chunks:
-                await message.answer("\n".join(chunk), parse_mode="HTML")
-                await asyncio.sleep(random.uniform(1.0, 2.0)) # Задержка между частями лога
+            # Объединяем весь лог боя в одну строку
+            current_output_text += "\n".join(battle_result['battle_log']) + "\n"
 
         if battle_result['victory']:
             dungeon_total_xp += battle_result['xp_gained']
             dungeon_total_coins += battle_result['coins_gained']
-            await message.answer(
-                f"🏆 Победа над <b>{current_monster_name}</b>!\n"
+            current_output_text += (
+                f"\n🏆 Победа над <b>{current_monster_name}</b>!\n"
                 f"Получено: {battle_result['xp_gained']} XP, {battle_result['coins_gained']} 💰"
                 f"\n\nПрогресс данжа: {i + 1}/{num_encounters_to_do} стычек."
-                f"\nОбщий заработок в данже: {dungeon_total_xp} XP, {dungeon_total_coins} 💰",
-                parse_mode="HTML"
+                f"\nОбщий заработок в данже: {dungeon_total_xp} XP, {dungeon_total_coins} 💰"
             )
             
             pets_data = battle_result['updated_pets_data']
@@ -620,11 +633,10 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
             )
 
         else:
-            await message.answer(
-                f"💀 Ваша команда потерпела поражение от <b>{current_monster_name}</b>. Поход окончен!\n"
+            current_output_text += (
+                f"\n💀 Ваша команда потерпела поражение от <b>{current_monster_name}</b>. Поход окончен!\n"
                 f"Вы заработали: {dungeon_total_xp} XP, {dungeon_total_coins} 💰 (до поражения).\n"
-                f"<b>Ваши питомцы нуждаются в лечении!</b> Используйте команду <code>/heal</code>.",
-                parse_mode="HTML"
+                f"<b>Ваши питомцы нуждаются в лечении!</b> Используйте команду <code>/heal</code>."
             )
             
             pets_data_after_loss = battle_result['updated_pets_data']
@@ -634,9 +646,28 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
                     {"current_hp": max(0, pet_with_damage['current_hp']), "pet_id": pet_with_damage['id']}
                 )
             await state.clear()
+            
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id, message_id=dungeon_status_message_id,
+                    text=current_output_text, parse_mode="HTML"
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    await message.answer(current_output_text, parse_mode="HTML") # Fallback
             await asyncio.sleep(random.uniform(1.0, 2.0))
             return
 
+        # Обновляем сообщение с текущим статусом данжа
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id, message_id=dungeon_status_message_id,
+                text=current_output_text, parse_mode="HTML"
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                await message.answer(current_output_text, parse_mode="HTML") # Fallback, если редактирование не удалось
+        
         await asyncio.sleep(random.uniform(2.0, 4.0)) # Задержка между стычками
 
     # --- Данж успешно завершен ---
@@ -662,13 +693,22 @@ async def simulate_dungeon_progress(message: Message, user_id: int, state: FSMCo
             {"current_hp": pet_with_damage['stats']['hp'], "pet_id": pet_with_damage['id']}
         )
     
-    await message.answer(
+    final_summary_text = (
         f"🎉 <b>Команда успешно прошла {dungeon_info['name_ru']}</b>!\n"
         f"Общий заработок: <b>{dungeon_total_xp} XP</b> и <b>{dungeon_total_coins} 💰</b>.\n"
         f"В награду ты получил <b>{reward_egg_info['name_ru']}</b>!\n"
         f"Напиши /hatch, чтобы вылупить его!\n"
-        f"\nТекущая энергия: {await recalculate_energy(user_id)}/{MAX_ENERGY}",
-        parse_mode="HTML"
+        f"\nТекущая энергия: {await recalculate_energy(user_id)}/{MAX_ENERGY}"
     )
+    
+    try:
+        await message.bot.edit_message_text(
+            chat_id=message.chat.id, message_id=dungeon_status_message_id,
+            text=final_summary_text, parse_mode="HTML"
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            await message.answer(final_summary_text, parse_mode="HTML") # Fallback
+            
     await state.clear()
-    await asyncio.sleep(random.uniform(1.0, 2.0)) # Задержка после завершения данжа
+    await asyncio.sleep(random.uniform(1.0, 2.0))
