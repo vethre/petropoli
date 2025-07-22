@@ -657,25 +657,25 @@ async def check_zone_unlocks(uid: int, message_obj: Message = None): # Renamed `
                     print(f"Error sending zone unlock message: {e}")
 
 # Get zone buff multiplier (unchanged, but now uses new zone columns)
-async def get_zone_buff(user_id: int): # Принимаем user_id напрямую, а не объект user
-    user_record = await fetch_one("SELECT active_zone, active_zone_buff FROM users WHERE user_id = $1", {"uid": user_id})
+async def get_zone_buff(user_id: int):
+    # Убираем active_zone_buff из SELECT запроса, так как его нет в таблице users
+    user_record = await fetch_one("SELECT active_zone FROM users WHERE user_id = $1", {"uid": user_id})
 
     if not user_record:
-        # Пользователь не найден, или нет данных о зоне
         return None
 
-    # Преобразуем asyncpg.Record в изменяемый словарь
+    # Преобразуем asyncpg.Record в изменяемый словарь (это было правильно)
     user = dict(user_record)
 
     # Получаем данные текущей зоны пользователя
     active_zone_name = user.get('active_zone')
     if not active_zone_name:
-        return None # У пользователя нет активной зоны
+        return None
 
+    # Эти данные берутся ИЗ ТАБЛИЦЫ ZONES, что правильно.
     zone_data = await fetch_one("SELECT buff_type, buff_value FROM zones WHERE name = $1", {"zone_name": active_zone_name})
 
     if zone_data:
-        # Если у зоны есть баффы, возвращаем их
         return {
             'type': zone_data.get('buff_type'),
             'value': zone_data.get('buff_value')
